@@ -26,8 +26,18 @@ parser and exact decimal arithmetic.
 Run these from `backend/`:
 
 ```sh
+go run ./cmd/server                 # serve the API on :8080
+go run ./cmd/server -addr :8090     # or another address (env ADDR works too)
 go vet ./...
 go test ./...
+```
+
+The server logs JSON lines to stderr. Ctrl+C or `SIGTERM` stops it
+gracefully: requests in flight get up to 5 seconds to finish.
+
+```sh
+curl -X POST localhost:8080/api/v1/calculate -d '{"expression": "2 * (3 + 4) ^ 2"}'
+# {"result":"98"}
 ```
 
 `go test` also runs the fuzz seeds. To search for new failing inputs:

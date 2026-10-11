@@ -836,6 +836,41 @@ Settled while implementing:
 *Tests:* `run()` starts on a random port and serves one request. Plus a manual
 smoke test with `curl.exe`.
 
+Settled while implementing:
+
+- **Signature.** `run(ctx, args, getenv, stderr)`. `main` cancels `ctx` on
+  `os.Interrupt` (Ctrl+C) and on `SIGTERM`, which `docker stop` sends.
+- **Shutdown.** When `ctx` is cancelled, `run` calls `http.Server.Shutdown`.
+  Requests in flight get 5 seconds to finish, which leaves margin before
+  `docker stop` kills the process after 10 seconds. Then `run` returns nil.
+- **Address.** The `-addr` flag, then the `ADDR` environment variable, then
+  `:8080`.
+  - Strict, as everywhere else: an unknown flag, an extra argument or an
+    empty `-addr` (which would listen on a random port) is an error.
+  - `-h` prints the usage and exits with 0.
+- **Timeouts.** `ReadHeaderTimeout` 5 s, `ReadTimeout` and `WriteTimeout`
+  10 s, `IdleTimeout` 60 s. The slowest request found takes about 0.4 s
+  (step 7).
+- **Logging.** JSON lines from `slog` on stderr: `listening` with the actual
+  address, `shutting down`, `stopped`, and the handler's unexpected errors.
+  `http.Server` errors go through `slog` too. Requests are not logged.
+- **Tests.**
+  - `run` starts on `127.0.0.1:0`, and the test reads the address from the
+    `listening` log line. It serves a calculation, 405 and 404.
+  - When `ctx` is cancelled, `run` returns nil within 5 seconds, logs
+    `shutting down` and `stopped`, and the port no longer accepts connections.
+  - A request in flight during shutdown still gets its response. The test
+    sends `Expect: 100-continue`: the server answers `100 Continue` only once
+    the handler reads the body, so the request is in flight for certain. The
+    test sends the body only after new connections are refused, which shows
+    that `Shutdown` has started. Replacing `Shutdown` with `Close` fails it.
+  - Windows cannot send `SIGTERM` to a process, so a test only checks the
+    signal list. Step 17 checks the signal itself with `docker stop`.
+  - Error cases get a context that is already cancelled, so a bug that made
+    `run` serve would return at once instead of hanging the test.
+  - Not covered: `main`, `Serve` failing on its own, and `Shutdown` running
+    out of time.
+
 ### Phase 5: Frontend
 
 The frontend depends only on the [API contract](#api-contract), so this phase
@@ -1000,6 +1035,9 @@ Compared side by side with the design's screenshots.
 - `docker build` succeeds.
 - `docker run -p 8080:8080` serves a working calculator end to end in the
   browser.
+- `docker stop` sends `SIGTERM`. The log shows `shutting down` and `stopped`,
+  and the container exits right away instead of being killed after 10
+  seconds.
 - The `coverage` target exports the reports.
 
 **18. Delivery**

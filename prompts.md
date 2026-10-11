@@ -335,3 +335,30 @@ i dont agree with unknown json fields. answer key would be silently ignored resu
 - New tests cover these names, invalid UTF-8 and an unreadable body. The new
   name tests fail when unknown names are allowed again.
 - PLAN.md step 8 records the rule.
+
+## 18. Step 9
+
+```text
+step 9. also: shut down on SIGTERM too. and the run() test should check it returns cleanly when ctx is cancelled.
+```
+
+**Changes:**
+
+- `cmd/server`: a thin `main` and a testable `run(ctx, args, getenv, stderr)`.
+  - `main` stops on Ctrl+C and on `SIGTERM` (`docker stop`).
+  - When `ctx` is cancelled, `run` shuts down gracefully (5 s for requests in
+    flight) and returns nil.
+  - `-addr` flag, `ADDR` env var, `:8080` by default. Unknown flags, extra
+    arguments and an empty address are errors.
+  - `http.Server` timeouts, JSON logs with `slog`, and the API mounted under
+    `/api/`.
+- Tests:
+  - `run` serves on a random port, returns nil promptly when `ctx` is
+    cancelled, and closes the port.
+  - A request in flight during shutdown still gets its response.
+  - Config errors, `-h`, and that both signals are handled.
+  - Injected bugs (`Close` instead of `Shutdown`, no shutdown, `ctx` not
+    watched, env ignored, extra arguments allowed) each fail a test.
+- Manual smoke test with `curl.exe` against the built binary.
+- PLAN.md: step 9 decisions; step 17 checks `SIGTERM` with `docker stop`.
+  README: how to run the server.
