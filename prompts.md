@@ -168,3 +168,19 @@ pow returns wrong errors for huge exponents they returns underflow but it should
   never the reverse.
 - Tests for small and large bases with huge negative exponents. Three of them
   fail without the fix.
+
+## 9. Step 3 (summarized)
+
+- Asked to start step 3 after committing step 2.
+
+**Changes:**
+
+- `parser` package gains:
+  - a lexer that produces tokens on demand, each with its position
+  - `SyntaxError` with `Code()` and `Pos()`
+- Malformed numbers (`5.`, `1.2.3`) and non-ASCII characters are rejected at
+  the offending character.
+- Table-driven tests with 100% coverage. Each check was removed once to confirm
+  a test fails without it.
+- PLAN.md step 3 records the identifier rules, the whitespace set and the error
+  positions.

@@ -434,14 +434,22 @@ tests yet.
 **3. Lexer**
 
 - Tokens: number, `+ - * / ^ % ( ) ,`, identifier, EOF. Each token carries its
-  position.
-- Whitespace is skipped.
-- Only ASCII is accepted.
+  position. Number text is kept exactly as written.
+- Identifiers start with an ASCII letter or `_`, followed by letters, digits or
+  `_`, so a later `log10` needs no lexer change.
+- Whitespace (space, tab, CR, LF) is skipped.
+- Only ASCII is accepted. The first non-ASCII character is a `syntax_error` at
+  its position.
+- The lexer produces tokens on demand. The parser pulls them one at a time and
+  stops at the first error, whether lexical or syntactic.
+- `1e5` lexes as the number `1` followed by the identifier `e5`, and the parser
+  rejects it.
 
 *Tests:*
 
 - Positions are correct and whitespace is skipped.
-- `1.2.3` and `5.` are rejected; `.5` is accepted.
+- `1.2.3` and `5.` are rejected; `.5` is accepted. The error points at the
+  offending `.`: position 3 in `1.2.3`, position 1 in `5.`.
 - `2 $ 3` → `syntax_error` at position 2.
 - A non-ASCII character is rejected.
 
