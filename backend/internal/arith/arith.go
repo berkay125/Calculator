@@ -68,6 +68,70 @@ func Div(x, y *apd.Decimal) (*apd.Decimal, error) {
 	return apply(ctx.Quo, x, y)
 }
 
+// Pow returns x raised to the power y. 0^0 is 1 and zero raised to a negative
+// power is DivisionByZero. A negative x with a non-integer y is a DomainError.
+// Non-integer powers are computed through ln/exp and are approximate.
+func Pow(x, y *apd.Decimal) (*apd.Decimal, error) {
+	if x.IsZero() {
+		switch y.Sign() {
+		case 0:
+			// apd follows the GDA spec, where 0^0 is undefined.
+			return apd.New(1, 0), nil
+		case -1:
+			// apd returns Infinity here without raising a condition.
+			return nil, &MathError{Kind: DivisionByZero}
+		}
+	}
+	d, err := apply(ctx.Pow, x, y)
+	var mathErr *MathError
+	if errors.As(err, &mathErr) && (mathErr.Kind == Overflow || mathErr.Kind == Underflow) {
+		mathErr.Kind = powRangeKind(x, y)
+	}
+	return d, err
+}
+
+var one = apd.New(1, 0)
+
+// powRangeKind tells whether an out-of-range x^y is too large or too small.
+// apd cannot be trusted here: for a negative exponent it computes the positive
+// power first and only turns overflow into underflow, never the reverse, so
+// 0.5^-1E+100 comes back as underflow. |x|^y grows without bound when |x| > 1
+// and y > 0, or when |x| < 1 and y < 0.
+func powRangeKind(x, y *apd.Decimal) Kind {
+	var abs apd.Decimal
+	abs.Abs(x)
+	if (abs.Cmp(one) > 0) == (y.Sign() > 0) {
+		return Overflow
+	}
+	return Underflow
+}
+
+// Sqrt returns the square root of x. A negative x is a DomainError.
+func Sqrt(x *apd.Decimal) (*apd.Decimal, error) {
+	d := new(apd.Decimal)
+	if cond, err := ctx.Sqrt(d, x); err != nil {
+		return nil, fromCondition(cond, err)
+	}
+	return d, nil
+}
+
+var hundred = apd.New(100, 0)
+
+// Percent returns x / 100, the value of "x%" on its own or after * and /.
+func Percent(x *apd.Decimal) (*apd.Decimal, error) {
+	return Div(x, hundred)
+}
+
+// PercentOf returns pct percent of base (base * pct / 100). It gives "a + b%"
+// its phone-calculator meaning: a + PercentOf(a, b).
+func PercentOf(base, pct *apd.Decimal) (*apd.Decimal, error) {
+	p, err := Mul(base, pct)
+	if err != nil {
+		return nil, err
+	}
+	return Div(p, hundred)
+}
+
 // apply runs a binary apd operation into a new Decimal and translates a
 // trapped condition into a MathError.
 func apply(op func(d, x, y *apd.Decimal) (apd.Condition, error), x, y *apd.Decimal) (*apd.Decimal, error) {

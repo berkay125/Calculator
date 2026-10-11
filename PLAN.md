@@ -244,8 +244,9 @@ apd directly, so no grammar is involved.
 
 - **Exact:** apd computes terminating decimals such as `0.1 + 0.2` exactly.
 - **Inputs are never rounded:** literals and `ans` keep every digit. Each
-  operation rounds only its result (ties to even). Rounding inputs first would
-  make results depend on digits that were already discarded.
+  operation rounds only its result (ties to even), and the evaluator rounds the
+  final value. Rounding inputs first would make results depend on digits that
+  were already discarded.
 - **Rounded to 34 digits:** `1/3` and `sqrt(2)`.
 - **Approximate:** non-integer powers, which apd computes through ln/exp.
 - **Example:** `1/3*3` is `0.999…9`. The display rounds it to `1`, while `Ans`
@@ -478,12 +479,15 @@ tests yet.
   blocking.
 - Looks up functions in the registry, with an arity check.
 - Resolves variables from the variable table.
+- Rounds the final value to 34 digits, so an expression with no operation
+  (a long literal, `Ans`, `-x`, `(x)`) also returns at most 34 digits.
 - Math errors carry the position of the operator or function that caused them.
 
 *Tests:*
 
 - An end-to-end table: `2 * (3 + 4) ^ 2 = 98`, plus the full percent table from
   this plan.
+- A 40-digit literal on its own comes back rounded to 34 digits.
 - `foo(1)` → `unknown_function` at position 0.
 - `x` → `unknown_variable`.
 - `sqrt(1,2)` → `wrong_argument_count`.

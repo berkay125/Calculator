@@ -75,6 +75,22 @@ func TestOperations(t *testing.T) {
 		{"div rounds to precision", Div, "1", "3", "0.3333333333333333333333333333333333"},
 		{"div rounds the last digit", Div, "2", "3", "0.6666666666666666666666666666666667"},
 		{"div negative", Div, "-7", "2", "-3.5"},
+		{"pow integer exponent", Pow, "2", "10", "1024"},
+		{"pow negative exponent", Pow, "2", "-1", "0.5"},
+		{"pow zero exponent", Pow, "5", "0", "1"},
+		{"pow zero to the zero", Pow, "0", "0", "1"},
+		{"pow zero base", Pow, "0", "2", "0"},
+		{"pow negative base, odd exponent", Pow, "-2", "3", "-8"},
+		{"pow negative base, odd exponent with fraction digits", Pow, "-2", "3.0", "-8"},
+		{"pow negative base, even exponent", Pow, "-2", "2", "4"},
+		{"pow fractional exponent, exact result", Pow, "4", "0.5", "2"},
+		{"pow fractional exponent above one", Pow, "9", "1.5", "27"},
+		{"pow fractional exponent, irrational result", Pow, "2", "0.5", "1.414213562373095048801688724209698"},
+		{"pow huge exponent of one", Pow, "1", "1E+100", "1"},
+		{"pow huge even exponent of minus one", Pow, "-1", "1E+100", "1"},
+		{"percent of", PercentOf, "200", "10", "20"},
+		{"percent of with fraction", PercentOf, "50", "12.5", "6.25"},
+		{"negative percent of", PercentOf, "200", "-10", "-20"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,6 +118,21 @@ func TestOperationErrors(t *testing.T) {
 		{"overflow", Mul, "9E+6144", "10", Overflow},
 		{"overflow on add", Add, "9.999999999999999999999999999999999E+6144", "1E+6131", Overflow},
 		{"underflow", Div, "1E-6143", "10", Underflow},
+		{"pow zero to a negative power", Pow, "0", "-1", DivisionByZero},
+		{"pow negative base, fractional exponent", Pow, "-8", "0.5", DomainError},
+		{"pow negative base, rounded one third", Pow, "-8", "0.3333333333333333333333333333333333", DomainError},
+		{"pow overflow past the exponent range", Pow, "10", "7000", Overflow},
+		{"pow overflow in intermediate steps", Pow, "10", "1000000", Overflow},
+		{"pow overflow with a huge exponent", Pow, "2", "1E+100", Overflow},
+		{"pow underflow with a negative exponent", Pow, "10", "-1000000", Underflow},
+		{"pow underflow with a small base", Pow, "0.5", "1E+100", Underflow},
+		{"pow underflow with a large base and a huge negative exponent", Pow, "2", "-1E+100", Underflow},
+		{"pow overflow with a small base and a huge negative exponent", Pow, "0.5", "-1E+100", Overflow},
+		{"pow overflow with a small base and a negative exponent", Pow, "0.1", "-1000000", Overflow},
+		{"pow overflow with a negative small base", Pow, "-0.5", "-1E+100", Overflow},
+		{"pow overflow past the range with a negative exponent", Pow, "0.1", "-7000", Overflow},
+		{"pow underflow past the range with a negative exponent", Pow, "10", "-7000", Underflow},
+		{"percent of overflow", PercentOf, "1E+6144", "1E+6144", Overflow},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,5 +145,42 @@ func TestOperationErrors(t *testing.T) {
 				t.Errorf("got kind %s, want %s", mathErr.Code(), tt.want.Code())
 			}
 		})
+	}
+}
+
+func TestUnaryOperations(t *testing.T) {
+	tests := []struct {
+		name string
+		op   func(x *apd.Decimal) (*apd.Decimal, error)
+		x    string
+		want string
+	}{
+		{"sqrt exact", Sqrt, "16", "4"},
+		{"sqrt fraction", Sqrt, "0.25", "0.5"},
+		{"sqrt irrational", Sqrt, "2", "1.414213562373095048801688724209698"},
+		{"sqrt zero", Sqrt, "0", "0"},
+		{"sqrt negative zero", Sqrt, "-0", "0"},
+		{"percent", Percent, "10", "0.1"},
+		{"percent with fraction", Percent, "12.5", "0.125"},
+		{"negative percent", Percent, "-5", "-0.05"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.op(mustParse(t, tt.x))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if s := Format(got); s != tt.want {
+				t.Errorf("got %q, want %q", s, tt.want)
+			}
+		})
+	}
+}
+
+func TestSqrtOfNegative(t *testing.T) {
+	got, err := Sqrt(mustParse(t, "-1"))
+	var mathErr *MathError
+	if !errors.As(err, &mathErr) || mathErr.Kind != DomainError {
+		t.Errorf("Sqrt(-1) = %v, %v; want MathError with kind domain_error", got, err)
 	}
 }

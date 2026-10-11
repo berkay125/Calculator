@@ -137,3 +137,34 @@ repository content is in English.
 - `Parse` keeps every digit of its input; only operation results are rounded.
 - Tests for ties-to-even and long inputs. They fail under the old behavior.
 - PLAN.md updated to match.
+
+## 7. Final-result rounding and step 2
+
+```text
+in sixth step, round the final result also. i committed so you can start step 2
+```
+
+**Changes:**
+
+- PLAN.md step 6: the evaluator also rounds the final value to 34 digits.
+- `arith` gains:
+  - `Pow` (special cases `0^0 = 1` and `0^negative` → `division_by_zero`)
+  - `Sqrt`
+  - `Percent` / `PercentOf`
+  - a function registry with `sqrt` (`Lookup`)
+- Tests for edge cases: domain errors, overflow and underflow with huge
+  exponents. Coverage stays at 100%.
+
+## 8. Overflow vs. underflow for huge exponents
+
+```text
+pow returns wrong errors for huge exponents they returns underflow but it should returm overflow check 0.5^-1E+100
+```
+
+**Changes:**
+
+- `Pow` now works out the overflow/underflow direction from its operands.
+- Root cause: for negative exponents apd only turns overflow into underflow,
+  never the reverse.
+- Tests for small and large bases with huge negative exponents. Three of them
+  fail without the fix.
