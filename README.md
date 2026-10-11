@@ -52,6 +52,22 @@ go test ./internal/parser -fuzz=FuzzParse -fuzztime=1m
 go test ./internal/eval -fuzz=FuzzEvaluate -fuzztime=1m
 ```
 
+To serve the frontend from the same server, copy its production build into
+`backend/internal/web/dist/`, which is embedded into the binary. From the
+repository root:
+
+```sh
+npm --prefix frontend run build
+cp -r frontend/dist/. backend/internal/web/dist/
+```
+
+In Windows PowerShell, copy with
+`Copy-Item -Recurse -Force frontend/dist/* backend/internal/web/dist/`.
+
+Then `go run ./cmd/server` serves the calculator at `http://localhost:8080/`.
+The copy is gitignored. Without it, the server serves only the API and logs a
+warning.
+
 ### Frontend
 
 Run these from `frontend/`:

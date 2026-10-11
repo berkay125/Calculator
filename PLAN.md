@@ -1041,6 +1041,45 @@ Compared side by side with the design's screenshots.
 - `GET /` returns `index.html`.
 - `GET /api/v1/calculate` still returns 405.
 
+Settled while implementing:
+
+- **Only the build's files.** `web.NewHandler(fsys)` reads the build once,
+  at startup, and serves exactly its files: `/` serves `index.html`, and
+  every other path serves the file of that name.
+  - No directory listings.
+  - No fallback to `index.html` for unknown paths, because the app has no
+    client-side routes. They get 404.
+  - Names that start with a dot (`.gitkeep`, `.vite/`) are not served.
+- **Methods.** GET and HEAD. Other methods get 405 with `Allow: GET, HEAD`.
+- **Content types** come from a fixed table of the extensions in the build:
+  `.html`, `.js`, `.css`, `.svg`, `.woff`, `.woff2`. Go's own table has no
+  font types, and on Windows it also reads the registry. A file with any
+  other extension stops the server at startup, so no file is ever served
+  with a guessed type.
+- **Caching.**
+  - Vite puts its content-hashed files under `assets/`. They get
+    `Cache-Control: public, max-age=31536000, immutable`.
+  - Every other file, `index.html` first of all, gets `no-cache` and an
+    ETag (the first 128 bits of its SHA-256). The browser revalidates it
+    and gets 304 while it is unchanged, and a new build shows up at once.
+    Embedded files have no modification time, so without the ETag there
+    would be nothing to revalidate against.
+- **Routing.** `cmd/server` mounts the API at `/api/` and the frontend at
+  `/`. The API answers every `/api/` path itself, so `GET /api/v1/calculate`
+  gets 405, and a file under `api/` in the build would never be served.
+- **Without a build.** `dist/` holds only `.gitkeep`, and the copied build
+  is gitignored. The server then serves only the API and logs a warning.
+- **Not done: compression.** The JavaScript is 230 KB, 72 KB gzipped. The
+  fonts are already compressed.
+- **Tests.**
+  - `web` tests use an `fstest.MapFS` laid out like a Vite build.
+  - `cmd/server` tests the routes through `newMux`, with a fake build.
+  - Nine bugs were injected into the handler and three into the routing, one
+    at a time. The tests catch each.
+  - Checked by hand with the real build copied in: `curl.exe` for the
+    headers, 304, 404 and 405, and headless Chrome for `2*(3+4)^2` = `98`,
+    typed on the keyboard, with the fonts loaded and no failed requests.
+
 **17. Multi-stage Dockerfile and `.dockerignore`**
 
 *Tests:*

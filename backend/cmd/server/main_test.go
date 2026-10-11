@@ -7,14 +7,20 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
 	"syscall"
 	"testing"
+	"testing/fstest"
 	"time"
+
+	"calculator/internal/web"
 )
 
 const wait = 5 * time.Second
@@ -139,14 +145,20 @@ func TestRun(t *testing.T) {
 	if status != http.StatusOK || body != `{"result":"98"}` {
 		t.Errorf("POST /api/v1/calculate = %d %s, want 200 {\"result\":\"98\"}", status, body)
 	}
-	// The API is mounted under /api/, and nothing else is served yet.
+	// The API is mounted under /api/, and / serves the embedded build. That
+	// has index.html only once the frontend is built into dist, so TestRoutes
+	// checks the routes in detail with a fake build.
+	rootStatus := http.StatusNotFound
+	if _, err := fs.Stat(web.Dist(), "index.html"); err == nil {
+		rootStatus = http.StatusOK
+	}
 	for _, tt := range []struct {
 		method, path string
 		status       int
 	}{
 		{http.MethodGet, "/api/v1/calculate", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/api/v1/other", http.StatusNotFound},
-		{http.MethodGet, "/", http.StatusNotFound},
+		{http.MethodGet, "/", rootStatus},
 	} {
 		if status, _ := get(t, tt.method, base+tt.path, ""); status != tt.status {
 			t.Errorf("%s %s = %d, want %d", tt.method, tt.path, status, tt.status)
@@ -162,6 +174,75 @@ func TestRun(t *testing.T) {
 	if conn, err := net.DialTimeout("tcp", s.addr, time.Second); err == nil {
 		conn.Close()
 		t.Error("the server still accepts connections after run returned")
+	}
+}
+
+func TestRoutes(t *testing.T) {
+	var logs bytes.Buffer
+	static := fstest.MapFS{
+		"index.html":    {Data: []byte("<!doctype html>")},
+		"api/shadow.js": {Data: []byte("unreachable")},
+	}
+	h, err := newMux(slog.New(slog.NewJSONHandler(&logs, nil)), static)
+	if err != nil {
+		t.Fatalf("newMux: %v", err)
+	}
+	tests := []struct {
+		method, path, body string
+		status             int
+		want               string
+	}{
+		{http.MethodGet, "/", "", http.StatusOK, "<!doctype html>"},
+		{http.MethodPost, "/api/v1/calculate", `{"expression": "2 * (3 + 4) ^ 2"}`, http.StatusOK, `{"result":"98"}`},
+		// /api/ paths stay with the API, whatever their method, even where
+		// the build has a file.
+		{http.MethodGet, "/api/v1/calculate", "", http.StatusMethodNotAllowed, ""},
+		{http.MethodGet, "/api/", "", http.StatusNotFound, ""},
+		{http.MethodGet, "/api/shadow.js", "", http.StatusNotFound, ""},
+		// Everything else goes to the frontend.
+		{http.MethodPost, "/", "", http.StatusMethodNotAllowed, ""},
+		{http.MethodGet, "/missing", "", http.StatusNotFound, ""},
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body)))
+		if rec.Code != tt.status || (tt.want != "" && rec.Body.String() != tt.want) {
+			t.Errorf("%s %s = %d %q, want %d %q", tt.method, tt.path, rec.Code, rec.Body, tt.status, tt.want)
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("logs = %q, want none", logs.String())
+	}
+}
+
+// Without a frontend build the API still works, and a warning says why /
+// is not found.
+func TestRoutesWithoutFrontend(t *testing.T) {
+	var logs bytes.Buffer
+	h, err := newMux(slog.New(slog.NewJSONHandler(&logs, nil)), fstest.MapFS{".gitkeep": {}})
+	if err != nil {
+		t.Fatalf("newMux: %v", err)
+	}
+	if !strings.Contains(logs.String(), `"level":"WARN","msg":"the frontend is not built into the binary; serving only the API"`) {
+		t.Errorf("logs = %q, want a warning", logs.String())
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET / = %d, want 404", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/calculate", strings.NewReader(`{"expression": "1 + 2"}`)))
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":"3"}` {
+		t.Errorf("POST /api/v1/calculate = %d %q, want 200 {\"result\":\"3\"}", rec.Code, rec.Body)
+	}
+}
+
+// A build the web handler rejects stops the server from starting.
+func TestRoutesError(t *testing.T) {
+	_, err := newMux(slog.New(slog.DiscardHandler), fstest.MapFS{"logo.png": {}})
+	if err == nil || !strings.Contains(err.Error(), "logo.png: no content type") {
+		t.Errorf("newMux = %v, want an error about logo.png", err)
 	}
 }
 

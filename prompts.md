@@ -362,3 +362,25 @@ step 9. also: shut down on SIGTERM too. and the run() test should check it retur
 - Manual smoke test with `curl.exe` against the built binary.
 - PLAN.md: step 9 decisions; step 17 checks `SIGTERM` with `docker stop`.
   README: how to run the server.
+
+## 19. Step 16 (summarized)
+
+- Asked to continue with step 16.
+
+**Changes:**
+
+- `web` package: the frontend build is embedded with `//go:embed all:dist`,
+  and `NewHandler` serves it with GET and HEAD.
+  - Only the build's files are served: no directory listings, no dotfiles
+    and no fallback to `index.html`.
+  - Content types come from a fixed table, and an unknown file type stops
+    the server at startup.
+  - Hashed files under `assets/` are cached as immutable. `index.html` is
+    revalidated with an ETag.
+- `cmd/server` mounts the frontend at `/` next to the API. Every `/api/`
+  path stays with the API. Without a build the server logs a warning and
+  serves only the API.
+- Tests with a fake Vite build. Twelve injected bugs each fail a test.
+- Checked by hand with the real build: `curl.exe` for the headers and status
+  codes, and headless Chrome calculating `2*(3+4)^2` against the server.
+- PLAN.md step 16 records the decisions. README: how to embed the frontend.

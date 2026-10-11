@@ -4,6 +4,10 @@ backend/bin/
 backend/coverage.out
 backend/coverage.html
 
+# The frontend build, copied in for go:embed. Only .gitkeep is committed.
+backend/internal/web/dist/*
+!backend/internal/web/dist/.gitkeep
+
 # Editors and OS
 .idea/
 .vscode/*

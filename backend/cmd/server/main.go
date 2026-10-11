@@ -1,4 +1,4 @@
-// Command server serves the calculator API.
+// Command server serves the calculator API and the frontend.
 package main
 
 import (
@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"calculator/internal/api"
+	"calculator/internal/web"
 )
 
 const (
@@ -44,7 +46,7 @@ func main() {
 	}
 }
 
-// run serves the API until ctx is cancelled, then shuts down gracefully and
+// run serves the app until ctx is cancelled, then shuts down gracefully and
 // returns nil. args are the command-line arguments without the program name,
 // getenv reads environment variables, and logs go to stderr as JSON.
 func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) error {
@@ -56,15 +58,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		return err
 	}
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
+	handler, err := newMux(log, web.Dist())
+	if err != nil {
+		return err
+	}
 
 	ln, err := net.Listen("tcp", cfg.addr)
 	if err != nil {
 		return err
 	}
-	mux := http.NewServeMux()
-	mux.Handle("/api/", api.NewHandler(log))
 	srv := &http.Server{
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -90,6 +94,23 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	}
 	log.Info("stopped")
 	return nil
+}
+
+// newMux serves the API under /api/ and the frontend build static at /. The
+// API has its own mux, so it answers every /api/ path itself:
+// GET /api/v1/calculate gets 405 and never falls through to the frontend.
+func newMux(log *slog.Logger, static fs.FS) (http.Handler, error) {
+	files, err := web.NewHandler(static)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fs.Stat(static, "index.html"); err != nil {
+		log.Warn("the frontend is not built into the binary; serving only the API")
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api.NewHandler(log))
+	mux.Handle("/", files)
+	return mux, nil
 }
 
 type config struct {
