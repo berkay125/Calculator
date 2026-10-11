@@ -694,17 +694,62 @@ Settled while implementing:
 
 **7. Fuzz test** (built-in Go fuzzing)
 
-Invariants:
+Two fuzz targets. Their seeds run as part of `go test`, and `-fuzz` searches
+for new failing inputs (commands in the README).
+
+`FuzzParse` invariants:
 
 - No input panics.
-- Positional errors always fall within `[0, len(input)]`.
+- Errors are `syntax_error` or `nesting_too_deep`, with a position in
+  `[0, len(input)]`.
+- Every node's position points at the token that created it, which is the
+  character the frontend highlights.
+- The tree follows the [precedence table](#precedence-table): wherever the
+  table needs parentheses, the tree holds a `Group` node. The test keeps its
+  own copy of the table, so it checks the parser against the spec instead of
+  against itself.
 - For valid input, `Parse(infix(ast))` returns the same AST, compared through
-  `String()`. This round trip checks that parentheses are preserved and that
-  precedence is rebuilt correctly.
+  `String()`.
   - `infix` is a test-only printer. It writes `Group` nodes as parentheses and
-    adds no others, so the tree shape must come back from precedence alone.
+    adds no others, so the tree shape must come back from the tokens alone.
+    This catches dropped parentheses.
   - `String()` cannot be used here: it prints an S-expression, which the
     parser does not accept.
+  - The round trip cannot catch a precedence rule that is wrong but
+    consistent: a left-associative `^` prints and parses back the same tree.
+    The precedence check catches that.
+
+`FuzzEvaluate` invariants, with a fuzzed `ans`:
+
+- No input panics.
+- Every error has a code from the error catalog and a position in
+  `[0, len(expression)]`. An error without a code would be a 500 in the API.
+- A result has at most 34 significant digits and parses back through
+  `ParseValue` to the same value, so it can be sent back as `ans`.
+
+Settled while implementing:
+
+- **Mutation check.** Six parser bugs were injected one at a time: `^`
+  left-associative, `-` right-associative, dropped groups, operator positions
+  at the left operand, and unary minus binding loosest or tightest. The seeds
+  catch each of them.
+- **Long bases in `Pow`.** Probing expensive inputs while fuzzing found a bug.
+  For a non-integer exponent, apd computes ln/exp at a precision above the
+  number of digits in the base. A base with about 2700 digits or more (a
+  crafted `ans`) failed with apd's "too many iterations", an error without a
+  code. A 2500-digit base took 0.5 s per power, so `Ans^0.5+Ans^0.5+…` could
+  take a minute. `arith.Pow` now splits such a power:
+  `x^y = x^int(y) · x^frac(y)`.
+  - The integer part uses every digit of `x`.
+  - The fractional part uses `x` rounded to 44 digits (34 plus 10 guard
+    digits). Because `|frac(y)| < 1`, its relative error stays below that of
+    the rounded `x`.
+  - Bases of up to 44 digits, including every operation result, still go
+    straight to apd. A test checks that the split path matches apd wherever
+    apd still works.
+  - The slowest input found at the API limits now takes about 0.4 s:
+    `1^Ans` repeated with the largest `ans`, because apd squares once per bit
+    of an integer exponent.
 
 ### Phase 4: HTTP (`internal/api`, `cmd/server`)
 
