@@ -48,13 +48,14 @@ func FuzzEvaluate(f *testing.F) {
 		{"2 ^ 0.5 ^ -1", ""},
 		{"Ans*2+1", "0"},
 		{"Ans / 7", "1.5E+40"},
-		{"-Ans", "-0.12345678901234567890123456789012345"},
+		{"-Ans", "-0.1234567890123456789012345678901234"},
 		{"Ans * 10", "9.999999999999999999999999999999999E+6144"},
 		{"Ans / 10", "1E-6143"},
 		{"Ans", "1E+7000"},
+		{"Ans", "0.12345678901234567890123456789012345"},
 		// apd fails without an error code on a fractional power of a base
 		// with thousands of digits, unless arith splits the power.
-		{"Ans ^ 1.5", "1." + strings.Repeat("7", 3000)},
+		{"1." + strings.Repeat("7", 3000) + " ^ 1.5", ""},
 		{"1/0", ""},
 		{"0^-1", ""},
 		{"sqrt(-1)", ""},

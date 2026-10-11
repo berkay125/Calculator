@@ -35,7 +35,7 @@ hand-written parser and decimal arithmetic.
 | Number literals | `.5` is accepted and `5.` is rejected. No scientific notation in input |
 | Output format | Plain notation when the adjusted exponent is between −7 and 33, scientific (`1.5E+40`) outside that range. Trailing zeros are stripped and `-0` becomes `0` |
 | Percent | See [Percent semantics](#percent-semantics). Parentheses block the rule; unary minus does not |
-| `Ans` | Sent as a separate `ans` field and referenced as a variable. It is never substituted into the expression text |
+| `Ans` | Sent as a separate `ans` field and referenced as a variable. It is never substituted into the expression text. At most 34 digits, like every result |
 | HTTP status | 400 for invalid input, 422 for undefined math |
 | Error codes | Specific codes (`syntax_error`, `unknown_function`, `division_by_zero`, ...). See [Error catalog](#error-catalog) |
 | Coverage | A snapshot is committed under `coverage/`, and one command regenerates it |
@@ -104,7 +104,7 @@ POST /api/v1/calculate
 | Status | Code | When | `position` |
 |---|---|---|---|
 | 400 | `invalid_request` | Malformed JSON, missing `expression`, body too large | – |
-| 400 | `invalid_ans` | `ans` is not a valid decimal, or is outside the exponent range (`1E+7000`) | – |
+| 400 | `invalid_ans` | `ans` is not a valid decimal, is outside the exponent range (`1E+7000`), or has more than 34 digits | – |
 | 400 | `expression_too_long` | Expression length limit exceeded | – |
 | 400 | `nesting_too_deep` | Parenthesis depth limit exceeded | ✓ |
 | 400 | `syntax_error` | Unexpected token, unclosed parenthesis, empty expression | ✓ |
@@ -248,7 +248,8 @@ apd directly, so no grammar is involved.
 - **Inputs are never rounded:** literals and `ans` keep every digit. Each
   operation rounds only its result (ties to even), and the evaluator rounds the
   final value. Rounding inputs first would make results depend on digits that
-  were already discarded.
+  were already discarded. An `ans` with more than 34 digits is rejected, not
+  rounded (step 8).
 - **Negation is exact:** unary minus does not round, so
   `-12345678901234567890123456789012345 + 12345678901234567890123456789012344`
   is exactly `-1`.
@@ -274,6 +275,7 @@ pinned by tests:
 |---|---|
 | Request body | `http.MaxBytesReader`, 4 KiB |
 | Expression length | 1000 characters |
+| `ans` digits | 34, the most a result has |
 | Parenthesis nesting depth | 100 |
 | Number range | bounded exponent range in the apd context, so `10^10^10` fails fast with `overflow` |
 | Server timeouts | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` on `http.Server` |
@@ -656,7 +658,7 @@ tests yet.
 - Resolves variables from the variable table. Names are case-sensitive: `ans`
   is not `Ans`.
 - Rounds the final value to 34 digits, so an expression with no operation
-  (a long literal, `Ans`, `-x`, `(x)`) also returns at most 34 digits.
+  (a long literal, `-x`, `(x)`) also returns at most 34 digits.
 - Math errors carry the position of the operator or function that caused them.
 - API: `Evaluate(expression, vars)` returns a `Value`. `ParseValue` parses an
   `ans` string, and `Value.String()` formats a result. The `api` package uses
@@ -670,8 +672,8 @@ Settled while implementing:
   Otherwise operands are evaluated left to right, and the first error wins.
 - **Percent errors.** In `a ± b%`, a failure while computing b percent of a
   points at the `%`, and a failure of the `±` points at the operator.
-- **Final rounding.** Rounding up can overflow (an `ans` of forty 9s at the top
-  of the exponent range). The error points at the root of the expression.
+- **Final rounding.** Rounding up can overflow (a literal of 6145 nines). The
+  error points at the root of the expression.
 - **Literals out of range.** `arith.Parse` now reports `overflow` or
   `underflow` instead of `invalid number`, so a literal with thousands of
   digits fails at its own position. apd drops the condition flags when a
@@ -738,8 +740,9 @@ Settled while implementing:
   number of digits in the base. A base with about 2700 digits or more (a
   crafted `ans`) failed with apd's "too many iterations", an error without a
   code. A 2500-digit base took 0.5 s per power, so `Ans^0.5+Ans^0.5+…` could
-  take a minute. `arith.Pow` now splits such a power:
-  `x^y = x^int(y) · x^frac(y)`.
+  take a minute. Step 8 later capped `ans` at 34 digits, so only a literal
+  can be that long, and the API caps it at 1000 characters. `arith.Pow` now
+  splits such a power: `x^y = x^int(y) · x^frac(y)`.
   - The integer part uses every digit of `x`.
   - The fractional part uses `x` rounded to 44 digits (34 plus 10 guard
     digits). Because `|frac(y)| < 1`, its relative error stays below that of
@@ -762,6 +765,15 @@ Settled while implementing:
   undefined math. The handler maps this error itself and does not pass it to
   the code → status table. `ParseValue("1E+7000")` returns an error whose
   `Code()` is `overflow`, which the table would turn into a 422.
+- `ans` has at most 34 digits. No result has more, so a longer `ans` can only
+  be crafted, and every operation on it would work with all its digits.
+  `ParseValue` checks the digit count of the parsed number and returns
+  `ErrTooManyDigits`, which is `invalid_ans` like its other errors.
+  - Leading zeros do not count: `0.0001234…` with 34 significant digits is
+    accepted.
+  - Trailing zeros count, because they are digits of the parsed number:
+    `1.50` has three. Results never end in zeros, so an `ans` from the
+    frontend is never affected.
 - Calls `eval`.
 - Maps errors to status codes through the `Code()`/`Pos()` interfaces and one
   code → status table.
@@ -774,6 +786,7 @@ Settled while implementing:
 - Malformed JSON, invalid `ans`, oversized body.
 - `ans` = `"1E+7000"` → 400 `invalid_ans`, not 422 `overflow`. The same for
   `"1E-7000"` and `underflow`.
+- `ans` with 35 digits → 400 `invalid_ans`; with 34 digits it is accepted.
 - `GET` → 405.
 - A test that walks every code and checks it maps to 400 or 422.
 

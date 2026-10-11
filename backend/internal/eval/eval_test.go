@@ -103,8 +103,8 @@ func TestEvaluate(t *testing.T) {
 		{"Ans + 10%", "200", "220"},
 		{"-Ans", "1.5E+40", "-1.5E+40"},
 		{"Ans^2", "1E+20", "1E+40"},
-		{"Ans", "0.1234567890123456789012345678901234567", "0.1234567890123456789012345678901235"},
-		{"Ans - Ans", "0.1234567890123456789012345678901234567", "0"},
+		{"Ans", "0.0001234567890123456789012345678901234", "0.0001234567890123456789012345678901234"},
+		{"Ans", "9.999999999999999999999999999999999E+6144", "9.999999999999999999999999999999999E+6144"},
 	}
 	for _, tt := range tests {
 		t.Run(testName(tt.in), func(t *testing.T) {
@@ -123,9 +123,9 @@ func TestEvaluateErrors(t *testing.T) {
 	const (
 		// 34 nines: the largest value in range.
 		largest = "9.999999999999999999999999999999999E+6144"
-		// 40 nines: in range, but rounding to 34 digits overflows.
-		tooLong = "9.999999999999999999999999999999999999999E+6144"
 	)
+	// 6145 nines: in range, but rounding to 34 digits overflows.
+	tooLong := strings.Repeat("9", 6145)
 	tests := []struct {
 		in   string
 		ans  string
@@ -173,9 +173,8 @@ func TestEvaluateErrors(t *testing.T) {
 		{"Ans%", "1E-6143", "underflow", 3, "result is too close to zero"},
 		// Rounding the final value can overflow. The error points at the root
 		// of the expression.
-		{"Ans", tooLong, "overflow", 0, "result is too large"},
-		{" -(Ans)", tooLong, "overflow", 1, "result is too large"},
-		{strings.Repeat("9", 6145), "", "overflow", 0, "result is too large"},
+		{tooLong, "", "overflow", 0, "result is too large"},
+		{" -(" + tooLong + ")", "", "overflow", 1, "result is too large"},
 		// Literals outside the exponent range.
 		{"1" + strings.Repeat("0", 6145), "", "overflow", 0, "result is too large"},
 		{"2 + 0." + strings.Repeat("0", 6150) + "1", "", "underflow", 4, "result is too close to zero"},
@@ -218,8 +217,12 @@ func TestParseValue(t *testing.T) {
 		{"-0.5", "-0.5"},
 		{"1.50", "1.5"},
 		{"1.5E+40", "1.5E+40"},
-		// Every digit is kept.
-		{"0.12345678901234567890123456789012345", "0.12345678901234567890123456789012345"},
+		// Up to 34 digits are accepted, and every digit is kept. Leading zeros
+		// do not count.
+		{"0.1234567890123456789012345678901234", "0.1234567890123456789012345678901234"},
+		{"-1234567890123456789012345678901234", "-1234567890123456789012345678901234"},
+		{"0.0001234567890123456789012345678901234", "0.0001234567890123456789012345678901234"},
+		{"1.234567890123456789012345678901234E+100", "1.234567890123456789012345678901234E+100"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -232,6 +235,23 @@ func TestParseValue(t *testing.T) {
 		t.Run(in, func(t *testing.T) {
 			if v, err := ParseValue(in); err == nil {
 				t.Errorf("ParseValue(%q) = %s, want an error", in, v)
+			}
+		})
+	}
+}
+
+func TestParseValueTooManyDigits(t *testing.T) {
+	for _, in := range []string{
+		"0.12345678901234567890123456789012345",
+		"-12345678901234567890123456789012345",
+		"1.2345678901234567890123456789012345E+100",
+		// Trailing zeros count: they are digits of the parsed number.
+		"1.0000000000000000000000000000000000",
+		"100000000000000000000000000000000000",
+	} {
+		t.Run(in, func(t *testing.T) {
+			if v, err := ParseValue(in); !errors.Is(err, ErrTooManyDigits) {
+				t.Errorf("ParseValue(%q) = %v, %v; want ErrTooManyDigits", in, v, err)
 			}
 		})
 	}

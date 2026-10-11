@@ -281,3 +281,20 @@ for step 8: any error from ParseValue for the ans field must be invalid_ans (400
   test checks that the split path matches apd where apd still works.
 - PLAN.md step 7 records the invariants and the fix. The README lists the fuzz
   commands.
+
+## 15. `ans` is capped at 34 digits
+
+```text
+for step 8: also cap ans at 34 significant digits, more is invalid_ans. check it on the parsed number's digit count.change tests according to that
+```
+
+**Changes:**
+
+- `eval.ParseValue` returns `ErrTooManyDigits` for a number with more than 34
+  digits, counted on the parsed number: leading zeros do not count, trailing
+  zeros do. Results never have more, so an `ans` from the frontend always
+  passes. The step 8 handler maps it to `invalid_ans`, like every other
+  `ParseValue` error.
+- Tests that used a longer `ans` now use a 34-digit `ans` or a long literal.
+  New tests cover 34 digits accepted and 35 rejected, including trailing zeros.
+- PLAN.md: the error catalog, the limits table, and steps 6, 7 and 8.

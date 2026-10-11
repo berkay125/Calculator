@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"fmt"
+
 	"github.com/cockroachdb/apd/v3"
 
 	"calculator/internal/arith"
@@ -12,14 +14,26 @@ type Value struct {
 	d *apd.Decimal
 }
 
-// ParseValue parses a decimal string, such as an earlier result, and keeps
+// ErrTooManyDigits is returned by ParseValue for a number with more than
+// arith.Precision digits.
+var ErrTooManyDigits = fmt.Errorf("number has more than %d digits", arith.Precision)
+
+// ParseValue parses an earlier result, such as the value of Ans, and keeps
 // every digit. Plain and scientific notation are both accepted ("0.5",
 // "1.5E+40"), so every string that String returns parses back to the same
 // value.
+//
+// No result has more than arith.Precision digits, so a longer number returns
+// ErrTooManyDigits instead of making every operation on it work with all its
+// digits. Digits are counted on the parsed number: leading zeros do not count,
+// trailing zeros do ("1.50" has three).
 func ParseValue(s string) (Value, error) {
 	d, err := arith.Parse(s)
 	if err != nil {
 		return Value{}, err
+	}
+	if d.NumDigits() > arith.Precision {
+		return Value{}, ErrTooManyDigits
 	}
 	return Value{d}, nil
 }

@@ -12,7 +12,7 @@ import (
 // Evaluate parses expression and computes its value. vars holds the values of
 // variables such as Ans; names are case-sensitive. The result is rounded to
 // arith.Precision significant digits, even when no operation was applied (a
-// long literal, Ans, -x).
+// long literal, or its negation).
 //
 // Every error has a code and the position of the input that caused it:
 //   - Malformed input returns the parser's errors.
