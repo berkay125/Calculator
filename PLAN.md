@@ -30,7 +30,7 @@ hand-written parser and decimal arithmetic.
 | `-2^2` | `-4`: unary minus binds looser than `^` |
 | `2^3^2` | `512`: `^` is right-associative |
 | `0^0` | `1`, special-cased if apd returns something else |
-| Precision | 34 significant digits, exponent range ±6144, rounding half up (decimal128 limits) |
+| Precision | 34 significant digits and exponent range ±6144 (decimal128 limits); ties round to even (IEEE 754 default). Inputs are parsed exactly; only operation results are rounded |
 | Implicit multiplication (`2(3)`, `2sqrt(4)`) | Not supported; returns `syntax_error` |
 | Number literals | `.5` is accepted and `5.` is rejected. No scientific notation in input |
 | Output format | Plain notation when the adjusted exponent is between −7 and 33, scientific (`1.5E+40`) outside that range. Trailing zeros are stripped and `-0` becomes `0` |
@@ -243,6 +243,9 @@ apd directly, so no grammar is involved.
 ### Exactness and its limits
 
 - **Exact:** apd computes terminating decimals such as `0.1 + 0.2` exactly.
+- **Inputs are never rounded:** literals and `ans` keep every digit. Each
+  operation rounds only its result (ties to even). Rounding inputs first would
+  make results depend on digits that were already discarded.
 - **Rounded to 34 digits:** `1/3` and `sqrt(2)`.
 - **Approximate:** non-integer powers, which apd computes through ln/exp.
 - **Example:** `1/3*3` is `0.999…9`. The display rounds it to `1`, while `Ans`
@@ -395,7 +398,9 @@ tests yet.
 
 **1. Context, arithmetic, formatting, MathError**
 
-- A shared apd context: 34-digit precision and a bounded exponent range.
+- A shared apd context: 34-digit precision, a bounded exponent range and
+  round-half-even.
+- `Parse`, which keeps every digit of its input.
 - `Add`, `Sub`, `Mul`, `Div`.
 - One function that translates apd conditions into `MathError{Kind}`. Every
   kind carries its error code: `division_by_zero`, `domain_error`, `overflow`,

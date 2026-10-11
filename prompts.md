@@ -124,3 +124,16 @@ repository content is in English.
   - `MathError` with error codes
   - `Format` (plain or scientific notation)
 - Table-driven tests with 100% coverage.
+
+## 6. Rounding corrections
+
+```text
+1- use half even for rounding. decimal's default rounding is not half up.2- parse literal exactly and only round results. if inputs have bigger than 34 digits, results will be wrong
+```
+
+**Changes:**
+
+- Rounding switched to half-even.
+- `Parse` keeps every digit of its input; only operation results are rounded.
+- Tests for ties-to-even and long inputs. They fail under the old behavior.
+- PLAN.md updated to match.
