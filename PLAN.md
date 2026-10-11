@@ -131,8 +131,10 @@ POST /api/v1/calculate
 - An `ErrorCode` union type mirrors the catalog.
 - User messages come from a `Record<ErrorCode, string>`, so a missing message is
   a compile error.
-- The UI shows its own text. The backend `message` is a fallback and a
-  debugging aid.
+- The UI shows its own text, except for `syntax_error`. There the backend
+  `message` names the problem (`unexpected ')'`), so it is shown, with its
+  first letter capitalized. For other codes the backend `message` is a
+  debugging aid, and for `unexpected` responses a fallback.
 
 ## Parser and evaluator design
 
@@ -275,29 +277,112 @@ pinned by tests:
 
 - **Single reducer.** The keypad and the keyboard dispatch the same actions, so
   all logic sits in one pure reducer. State: `{ expression, ans, result, error, pending }`.
-- **After a result:**
-  - A digit starts a new expression.
-  - An operator continues from `Ans`, like a phone calculator.
+  - `ans` starts at `"0"`, as on scientific calculators, so `Ans` works from
+    the first calculation (for example, recurrences such as `Ans*2+1`). It is
+    sent with every request.
+  - `pending` is the request in flight: `{ id, expression, ans }`.
+- **Permissive input.** The reducer does not duplicate the grammar. The backend
+  checks the syntax, and the error highlight shows where the problem is.
+  - One exception: right after `Ans`, a digit, `(`, `Ans` or `sqrt(` is
+    ignored. The lexer would merge them into one identifier (`Ans5`, `Ans(`,
+    `Anssqrt(`), and the error would be a misleading `unknown_variable` or
+    `unknown_function`.
+- **Editing:**
   - Backspace deletes `sqrt(` and `Ans` as whole tokens.
+  - Any edit clears the error and cancels a pending request.
+  - `=` sends the request. It does nothing when the expression is empty or a
+    request is already pending.
+  - Clear resets the expression, result and error, and keeps `Ans`.
+- **After a result:**
+  - `+ - * / ^ %` continue from `Ans`, like a phone calculator: `+` gives
+    `Ans+`.
+  - Every other input key (digit, `.`, `(`, `)`, `sqrt(`, `Ans`) starts a new
+    expression.
+  - Backspace hides the result and returns to editing the same expression. It
+    does not delete a character.
+  - `=` does nothing. The last operation is not repeated.
+- **Keypad.** Digits, `. + - * / ^ % ( )`, `√` (inserts `sqrt(`), `Ans`
+  (inserts `Ans`, the variable name the backend expects), `=`, Backspace and
+  Clear.
 - **Display matches the request.** The expression on screen must equal the
   string sent to the backend character for character, or error positions drift.
-  - One-character visual swaps are fine (`*` → `×`, `/` → `÷`).
+  - One-character visual swaps are fine: `*` → `×`, `/` → `÷`, `-` → `−`
+    (U+2212). Each is a single UTF-16 code unit, so positions still line up.
   - Length-changing swaps are not (`√` ↔ `sqrt(`).
+  - No digit grouping.
 - **Error highlighting.** Positional errors highlight the offending character.
-- **Display formatter.** `formatForDisplay(exact, maxChars)` rounds on the
+  The position can equal the expression length (an error at the end, as in
+  `2+`). Then a placeholder after the last character is highlighted.
+- **Display formatter.** `formatForDisplay(exact)` returns `{ text, rounded }`,
+  following [Display formatting](#display-formatting). It rounds on the
   decimal string itself and never calls `Number()`. `Number()` would lose
   precision and overflow above 1e308.
-- **Stale responses.** The `useCalculator` hook performs the request and drops
-  any response that arrives after the expression has changed.
+- **Requests and stale responses:**
+  - The `useCalculator` hook sends the request from an effect keyed on the
+    request id, and aborts it with an `AbortController` in the cleanup.
+  - Each response carries its request id. The reducer drops a response that
+    does not match the pending request, so dropping stale responses is a pure
+    reducer rule with its own tests.
+  - The keyboard listener only calls `dispatch`, so it is registered once and
+    never reads stale state.
+- **API client.** `calculate(expression, ans)` returns one of:
+  - `ok`, with the result.
+  - `error`, with a known `ErrorCode` and an optional position.
+  - `unexpected`, for a response outside the contract: a 5xx, a body that is
+    not JSON, or an unknown code. The backend `message` is shown when present.
+  - `network`, when `fetch` itself fails.
+
+  The response body is checked at runtime. TypeScript types alone do not
+  validate it.
 - **Keyboard mapping.** A pure `keyToAction(event)` function and one `window`
   listener.
-  - Events with Ctrl or Meta held are ignored, so Ctrl+C still works.
-  - `/` calls `preventDefault`, because Firefox otherwise opens quick find.
+  - Digits and `. + - * / ^ % ( )` insert themselves. `s` inserts `sqrt(` and
+    `a` inserts `Ans`.
+  - The numpad decimal key inserts `.`. It is matched by
+    `code === 'NumpadDecimal'`, because it types `,` on Turkish and German
+    layouts.
   - Enter and `=` evaluate, Backspace deletes, Escape clears.
+  - Events with Ctrl or Meta held are ignored, so Ctrl+C still works. Ctrl+Alt
+    is not ignored, because that is how Windows reports AltGr.
+  - `/` calls `preventDefault`, because Firefox otherwise opens quick find.
+  - `^` is a dead key on some layouts (Turkish, German, French), where
+    `keydown` reports `key: 'Dead'`. Step 14 checks this on a real Turkish
+    keyboard.
+  - Keypad buttons do not take focus on mouse click (`preventDefault` on
+    pointer down). Otherwise Enter after a click would press the focused button
+    again and also evaluate. When a button has focus from Tab navigation, Enter
+    and Space are left to the button.
+- **Testability.** `App` receives `calculate` as a prop that defaults to the
+  real client, so component tests decide when responses arrive. Only the
+  client tests mock `fetch`.
 - **API URL.** The client uses the relative URL `/api/v1/calculate`. In
-  development, the Vite proxy forwards `/api` to `localhost:8080`. In
-  production the request goes to the same origin. No CORS and no environment
-  configuration needed.
+  development, the Vite proxy (`server.proxy` and `preview.proxy`) forwards
+  `/api` to `localhost:8080`. In production the request goes to the same
+  origin. No CORS and no environment configuration needed.
+
+### Display formatting
+
+The display shows the result rounded, while the exact value is kept as `Ans`.
+
+| Rule | Value |
+|---|---|
+| Significant digits | At most 12, rounded once from the exact value, ties to even |
+| Width | 14 characters. A leading minus sign is not counted |
+| Trailing zeros | Stripped. `-0` becomes `0` |
+| Plain notation | `0.001 ≤ abs(x) < 10^12`, with as many digits as fit the width |
+| Scientific notation | Everything else, in the backend's format (`1.5E+40`), with the mantissa rounded to fit the width. `0.00005` is shown as `5E-5` |
+| Result marker | `=` before an exact result, `≈` before a rounded one |
+
+Why these thresholds:
+
+- Below 10^12 every integer digit is significant, so plain notation never
+  shows zeros that rounding produced. `1099511627776` (2^40) becomes
+  `1.09951163E+12`, not `1099511627780`.
+- At 0.001 both notations show 10 significant digits. Below it, scientific
+  notation shows more.
+- A width of 14 fits 12 significant digits after `0.`, so `1/3` shows all 12.
+- The range is checked on the rounded value, so a carry can move a value
+  across a boundary: `999999999999.9` becomes `1E+12`.
 
 ## Coverage
 
@@ -566,28 +651,55 @@ smoke test with `curl.exe`.
 
 ### Phase 5: Frontend
 
+The frontend depends only on the [API contract](#api-contract), so this phase
+runs in parallel with phases 2–4 against a mocked API. An end-to-end check
+against the real backend follows step 9.
+
 **10. API client**
 
-- `calculate(expression, ans?)` returns a discriminated union: `ok`, `error`
-  (with an `ErrorCode` and an optional position) and `network`.
+- `calculate(expression, ans, signal?)` returns a discriminated union: `ok`,
+  `error` (with an `ErrorCode` and an optional position), `unexpected` and
+  `network`. It resolves for every outcome and rejects only when the caller
+  aborts it through `signal`.
+- The response body is validated at runtime. Anything else is `unexpected`:
+  - A 200 needs a `result` in the backend's number format (`-0.5`,
+    `1.5E+40`), so the display formatter can trust its input.
+  - An error needs status 400 or 422, a known code, a message, and a position
+    (when present) that is an integer from 0 to `expression.length`.
 - `ErrorCode` union type and a `Record<ErrorCode, string>` message table.
-- Vite proxy for `/api`.
+  `errorMessage(code, message)` picks the text: the backend's for
+  `syntax_error`, the table's for every other code.
+- Vite proxy for `/api` (`server.proxy` and `preview.proxy`).
 
-*Tests:* mocked `fetch` for success, a positional 400, a 422 and a network
-failure.
+*Tests:* mocked `fetch` for success, a positional 400, a 422, a 500, a body
+that is not JSON, an unknown code and a network failure.
 
 **11. Display formatter**
 
-- `formatForDisplay(exact, maxChars)` rounds on the string, without `Number()`.
+- `formatForDisplay(exact)` returns `{ text, rounded }`, following
+  [Display formatting](#display-formatting). It rounds on the string, without
+  `Number()`.
 
 *Tests:*
 
-- `0.3333…` is truncated.
-- `9.9999…` carries over to `10`.
-- Very large and very small values switch to scientific notation.
-- Negatives.
-- Integers that fit are shown unchanged.
-- Backend output in scientific notation is accepted as input.
+| Exact | Shown | Rounded | Why |
+|---|---|---|---|
+| `123456789012` | `123456789012` | no | 12 digits fit |
+| `0.3333333333333333333333333333333333` | `0.333333333333` | yes | 12 digits after `0.` |
+| `0.03333333333333333333333333333333333` | `0.03333333333` | yes | only 11 digits fit |
+| `0.1234567890125` | `0.123456789012` | yes | tie, rounds to even |
+| `0.1234567890135` | `0.123456789014` | yes | tie, rounds to even |
+| `9.9999999999999` | `10` | yes | carry, trailing zeros stripped |
+| `999999999999.9` | `1E+12` | yes | carry crosses 10^12 |
+| `1099511627776` | `1.09951163E+12` | yes | no zeros produced by rounding |
+| `0.00123456789012345` | `0.00123456789` | yes | plain down to 0.001 |
+| `0.001` | `0.001` | no | lower bound is inclusive |
+| `0.00012345678901` | `1.23456789E-4` | yes | below 0.001 |
+| `0.00005` | `5E-5` | no | below 0.001, even though it would fit |
+| `0.0009999999999999` | `0.001` | yes | carry back into plain range |
+| `-0.3333333333333333333333333333333333` | `-0.333333333333` | yes | minus sign not counted |
+| `1.5E-20` | `1.5E-20` | no | backend scientific input |
+| `1E+6144` | `1E+6144` | no | largest exponent |
 
 **12. Calculator reducer**
 
@@ -595,35 +707,51 @@ failure.
 
 - Action sequences produce the expected state.
 - Backspace on `sqrt(` and `Ans` removes the whole token.
-- A digit after a result starts a new expression; an operator after a result
-  continues from `Ans`.
-- Clear works.
-- Input clears any error.
+- After a result: operators continue from `Ans`, other keys start a new
+  expression, Backspace returns to editing, and `=` does nothing.
+- A digit, `(`, `Ans` or `sqrt(` right after `Ans` is ignored.
+- `ans` starts at `"0"`, and Clear keeps it.
+- `=` does nothing on an empty expression or while a request is pending.
+- Input clears any error and cancels the pending request.
+- A response whose id does not match the pending request is dropped.
 
 **13. Display, Keypad and the `useCalculator` hook**
 
-- Stale responses are dropped.
-- Positional errors highlight the offending character.
+- The hook sends the request from an effect keyed on the request id and aborts
+  it on cleanup.
+- Positional errors highlight the offending character, or a placeholder at
+  the end of the expression.
+- Rounded results are shown with `≈` instead of `=`.
+- oxlint's `react/exhaustive-deps` rule is enabled.
 
-*Tests (React Testing Library):*
+*Tests (React Testing Library, with an injected `calculate`):*
 
-- Clicking `2 + 3 =` against a mocked API shows `5`.
-- The error highlight appears at the right character.
-- The `Ans` key works.
+- Clicking `2 + 3 =` shows `5`.
+- The error highlight appears at the right character, including at the end of
+  the expression.
+- The `Ans` key works, starting from `0`.
+- A response that arrives after the expression has changed is not shown.
 
 **14. Keyboard support**
 
 - A pure `keyToAction(event)` function and a `window` listener.
+- Keypad buttons do not take focus on mouse click.
 
 *Tests:*
 
-- A `keyToAction` table, including the Ctrl/Meta passthrough.
+- A `keyToAction` table: Ctrl/Meta passthrough, AltGr (Ctrl+Alt) still types,
+  the numpad decimal key, `s` and `a`.
 - Typing `2*3{Enter}` with user-event shows the result.
+- Enter after clicking a keypad button evaluates once and does not press the
+  button again.
+- Manual check of `^` on a Turkish keyboard (dead key).
 
 **15. Polish**
 
 - Accessibility: `aria-live` on the result and labels on all buttons.
 - Responsive layout.
+- Long expressions scroll horizontally and keep the end, or the error
+  highlight, in view.
 - Loading state while a request is pending.
 
 ### Phase 6: Packaging and delivery
