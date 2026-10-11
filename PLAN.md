@@ -30,10 +30,10 @@ hand-written parser and decimal arithmetic.
 | `-2^2` | `-4`: unary minus binds looser than `^` |
 | `2^3^2` | `512`: `^` is right-associative |
 | `0^0` | `1`, special-cased if apd returns something else |
-| Precision | 34 significant digits (same as decimal128) |
+| Precision | 34 significant digits, exponent range ±6144, rounding half up (decimal128 limits) |
 | Implicit multiplication (`2(3)`, `2sqrt(4)`) | Not supported; returns `syntax_error` |
 | Number literals | `.5` is accepted and `5.` is rejected. No scientific notation in input |
-| Output format | Plain notation inside an exponent threshold, scientific (`1.5E+40`) outside it. Trailing zeros are stripped and `-0` becomes `0` |
+| Output format | Plain notation when the adjusted exponent is between −7 and 33, scientific (`1.5E+40`) outside that range. Trailing zeros are stripped and `-0` becomes `0` |
 | Percent | See [Percent semantics](#percent-semantics). Parentheses block the rule; unary minus does not |
 | `Ans` | Sent as a separate `ans` field and referenced as a variable. It is never substituted into the expression text |
 | HTTP status | 400 for invalid input, 422 for undefined math |
@@ -382,8 +382,7 @@ frontend.
 
 - `git init`, `.gitignore`, and `.gitattributes` (LF line endings).
 - `backend/`: `go mod init`, then add `github.com/cockroachdb/apd/v3`. Use Go
-  1.22 or newer: its `ServeMux` supports method patterns such as
-  `"POST /api/v1/calculate"`, so no router library is needed.
+  1.27.
 - `frontend/`: Vite `react-ts` template, plus Vitest, jsdom, React Testing
   Library, user-event and `@vitest/coverage-v8`.
 - Coverage commands for both sides.

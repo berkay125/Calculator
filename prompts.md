@@ -110,3 +110,17 @@ repository content is in English.
 - Go module with apd and package stubs.
 - Vite + React + TypeScript frontend with Vitest and coverage.
 - A smoke test, `README.md` and this file.
+
+## 5. Step 1 (summarized)
+
+- Asked to continue with step 1.
+
+**Changes:**
+
+- `arith` package with:
+  - a shared apd context (34 digits, decimal128 exponent range, half-up rounding)
+  - `Parse`
+  - `Add`/`Sub`/`Mul`/`Div`
+  - `MathError` with error codes
+  - `Format` (plain or scientific notation)
+- Table-driven tests with 100% coverage.
