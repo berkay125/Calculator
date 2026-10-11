@@ -790,6 +790,42 @@ Settled while implementing:
 - `GET` → 405.
 - A test that walks every code and checks it maps to 400 or 422.
 
+Settled while implementing:
+
+- **Handler.** `api.NewHandler(log)` returns a mux that serves only
+  `POST /api/v1/calculate`, and step 9 mounts it at `/api/`. The method
+  pattern gives other methods a plain-text 405 with `Allow: POST`.
+- **Decoding.**
+  - The body must be exactly one JSON object.
+  - Member names must match exactly. An unknown name (`answer`), a name with
+    different case (`ANS`) or a repeated name is `invalid_request`. Otherwise
+    a misspelled `ans` would be ignored, and the result would silently be
+    wrong.
+  - This uses `encoding/json/v2` with `RejectUnknownMembers`. v2 matches names
+    case-sensitively and rejects repeated names and invalid UTF-8 by default.
+    v1 matches names case-insensitively and lets the last repeated name win.
+  - A missing or `null` `expression` is `invalid_request`. An empty one is a
+    `syntax_error` at position 0.
+  - A `null` `ans` is the same as no `ans`.
+  - Messages do not show Go type names: `unknown field "answer"`,
+    `expression must be a string`, `request body is not valid JSON`,
+    `request body is larger than 4096 bytes`, and so on.
+- **Order of checks.** Request, expression length, `ans`, then evaluation. An
+  expression that is too long is reported even when `ans` is invalid too.
+- **Expression length** counts bytes. Only ASCII is valid, so for valid input
+  that is the number of characters.
+- **`invalid_ans` messages** give the reason: `invalid ans: not a valid
+  number`, `invalid ans: outside the exponent range`,
+  `invalid ans: number has more than 34 digits`.
+- **Every code has a status.** `eval.Codes()` lists every code `Evaluate` can
+  return. The walk test checks each of them, plus the handler's own codes, and
+  checks that the table holds no other codes. `FuzzEvaluate` checks returned
+  codes against the same list.
+- **Unexpected errors.** An error without a code, or with a code missing from
+  the table, is a bug. It is logged with `slog`, and the client gets 500 with
+  the code `internal_error`. That code is outside the catalog, and the
+  frontend treats every 5xx as `unexpected` anyway.
+
 **9. Server entry point**
 
 - `main` stays thin and calls `run(ctx, args)`.

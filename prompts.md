@@ -298,3 +298,40 @@ for step 8: also cap ans at 34 significant digits, more is invalid_ans. check it
 - Tests that used a longer `ans` now use a 34-digit `ans` or a long literal.
   New tests cover 34 digits accepted and 35 rejected, including trailing zeros.
 - PLAN.md: the error catalog, the limits table, and steps 6, 7 and 8.
+
+## 16. Step 8 (summarized)
+
+- Asked to continue with step 8.
+
+**Changes:**
+
+- `api` package: `NewHandler` serves `POST /api/v1/calculate`.
+  - It decodes the body (4 KiB limit, exactly one JSON object, `expression`
+    required), checks the expression length (1000) and parses `ans`.
+  - Every `ans` error is `invalid_ans`, and errors from evaluation map to 400
+    or 422 through one code → status table.
+  - Unexpected errors are logged and answered with 500.
+- `eval.Codes()` lists every code `Evaluate` can return. The API test checks
+  that each one has a status, so a new code breaks the test instead of
+  becoming a 500.
+- `httptest` tests cover every error code with its position, malformed bodies,
+  the limits at and past their bounds, and 405. Coverage stays at 100%.
+- Eight handler bugs were injected one at a time; the tests catch each.
+- PLAN.md step 8 records the decisions made while implementing.
+
+## 17. Reject unknown JSON fields
+
+```text
+i dont agree with unknown json fields. answer key would be silently ignored result would be wrong. i agreed with other decisions.
+```
+
+**Changes:**
+
+- The handler decodes the body with `encoding/json/v2` and
+  `RejectUnknownMembers`. An unknown name (`answer`), a name with different
+  case (`ANS`) or a repeated name is now `invalid_request`, for example
+  `unknown field "answer"`.
+- Responses are written with v2 as well, and the tests decode them strictly.
+- New tests cover these names, invalid UTF-8 and an unreadable body. The new
+  name tests fail when unknown names are allowed again.
+- PLAN.md step 8 records the rule.

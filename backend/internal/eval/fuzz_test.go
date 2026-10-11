@@ -3,6 +3,7 @@ package eval
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,23 +11,9 @@ import (
 	"calculator/internal/parser"
 )
 
-// evalCodes are the error codes Evaluate can return. The API layer maps each
-// one to an HTTP status, so any other code would surface as an internal error.
-var evalCodes = map[string]bool{
-	"syntax_error":         true,
-	"nesting_too_deep":     true,
-	"unknown_function":     true,
-	"unknown_variable":     true,
-	"wrong_argument_count": true,
-	"division_by_zero":     true,
-	"domain_error":         true,
-	"overflow":             true,
-	"underflow":            true,
-}
-
 // FuzzEvaluate checks invariants that must hold for every expression and Ans:
 //   - Evaluate does not panic.
-//   - An error has a code from the error catalog and a position in
+//   - An error has a code listed by Codes and a position in
 //     [0, len(expression)].
 //   - A result has at most arith.Precision significant digits, and its string
 //     parses back to the same value, so it can be sent back as Ans.
@@ -71,6 +58,7 @@ func FuzzEvaluate(f *testing.F) {
 	} {
 		f.Add(seed.expression, seed.ans)
 	}
+	codes := Codes()
 	f.Fuzz(func(t *testing.T, expression, ans string) {
 		var vars map[string]Value
 		if v, err := ParseValue(ans); err == nil {
@@ -85,7 +73,7 @@ func FuzzEvaluate(f *testing.F) {
 			if !errors.As(err, &posErr) {
 				t.Fatalf("%s error = %v, want an error with a code and a position", call, err)
 			}
-			if !evalCodes[posErr.Code()] {
+			if !slices.Contains(codes, posErr.Code()) {
 				t.Errorf("%s error code = %q", call, posErr.Code())
 			}
 			if pos := posErr.Pos(); pos < 0 || pos > len(expression) {

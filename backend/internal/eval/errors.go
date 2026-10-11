@@ -38,17 +38,41 @@ func (e *Error) Unwrap() error {
 	return e.err
 }
 
+// The codes of the errors the evaluator finds itself.
+const (
+	codeUnknownVariable    = "unknown_variable"
+	codeUnknownFunction    = "unknown_function"
+	codeWrongArgumentCount = "wrong_argument_count"
+)
+
+// Codes returns every error code Evaluate can return: the parser's, the
+// evaluator's own and those of math errors. The API layer maps each one to an
+// HTTP status.
+func Codes() []string {
+	return []string{
+		(&parser.SyntaxError{}).Code(),
+		(&parser.NestingError{}).Code(),
+		codeUnknownVariable,
+		codeUnknownFunction,
+		codeWrongArgumentCount,
+		arith.DivisionByZero.Code(),
+		arith.DomainError.Code(),
+		arith.Overflow.Code(),
+		arith.Underflow.Code(),
+	}
+}
+
 func unknownVariable(n *parser.Variable) error {
-	return &Error{code: "unknown_variable", msg: fmt.Sprintf("unknown variable '%s'", n.Name), offset: n.Pos}
+	return &Error{code: codeUnknownVariable, msg: fmt.Sprintf("unknown variable '%s'", n.Name), offset: n.Pos}
 }
 
 func unknownFunction(n *parser.Call) error {
-	return &Error{code: "unknown_function", msg: fmt.Sprintf("unknown function '%s'", n.Name), offset: n.Pos}
+	return &Error{code: codeUnknownFunction, msg: fmt.Sprintf("unknown function '%s'", n.Name), offset: n.Pos}
 }
 
 func wrongArgumentCount(n *parser.Call, want int) error {
 	msg := fmt.Sprintf("wrong number of arguments for %s: want %d, got %d", n.Name, want, len(n.Args))
-	return &Error{code: "wrong_argument_count", msg: msg, offset: n.Pos}
+	return &Error{code: codeWrongArgumentCount, msg: msg, offset: n.Pos}
 }
 
 // at attaches pos to an error from arith. It returns nil when err is nil, so a
