@@ -314,9 +314,21 @@ pinned by tests:
     stays on screen until the new one arrives, and a failed repeat replaces it
     with the error. Without `Ans`, `=` does nothing. The last operation is
     never repeated phone-style (`+5`, `=`, `=`).
-- **Keypad.** Digits, `. + - * / ^ % ( )`, `√` (inserts `sqrt(`), `Ans`
-  (inserts `Ans`, the variable name the backend expects), `=`, Backspace and
-  Clear.
+- **Keypad.** Four columns, six rows:
+
+  ```
+  C   ⌫   (   )
+  √   ^   %   ÷
+  7   8   9   ×
+  4   5   6   −
+  1   2   3   +
+  0   .   Ans =
+  ```
+
+  - `√` inserts `sqrt(`, and `Ans` inserts `Ans`, the variable name the
+    backend expects.
+  - Keys labeled with a symbol have an accessible name (`divide`,
+    `square root`, `answer`, ...).
 - **Display matches the request.** The expression on screen must equal the
   string sent to the backend character for character, or error positions drift.
   - One-character visual swaps are fine: `*` → `×`, `/` → `÷`, `-` → `−`
@@ -771,18 +783,31 @@ generated values are checked against the width and notation rules.
 
 - The hook sends the request from an effect keyed on the request id and aborts
   it on cleanup.
+  - `calculate` rejects only when aborted, so the hook ignores rejections.
+  - `calculate` must be stable across renders, because the effect depends on
+    it. `App` defaults to the module-level client.
+- The display has an expression line and a result line (an `<output>`). An
+  empty expression shows a dimmed `0`, which is not part of the expression.
 - Positional errors highlight the offending character, or a placeholder at
   the end of the expression.
 - Rounded results are shown with `≈` instead of `=`.
+- Failure text: `errorMessage` for API errors. For `unexpected`, the backend
+  message, or "Unexpected response from the server". For `network`, "Cannot
+  reach the server".
 - oxlint's `react/exhaustive-deps` rule is enabled.
 
 *Tests (React Testing Library, with an injected `calculate`):*
 
 - Clicking `2 + 3 =` shows `5`.
+- Operators are shown as symbols (`×`, `÷`, `−`) and sent as ASCII.
 - The error highlight appears at the right character, including at the end of
   the expression.
-- The `Ans` key works, starting from `0`.
-- A response that arrives after the expression has changed is not shown.
+- Each failure kind shows its text.
+- The `Ans` key works, starting from `0`, and repeated `=` steps an `Ans`
+  expression.
+- A response that arrives after the expression has changed is not shown, and
+  the rejection of an aborted request is handled quietly.
+- Every keypad key dispatches its action.
 
 **14. Keyboard support**
 

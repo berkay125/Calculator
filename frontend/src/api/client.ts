@@ -10,6 +10,8 @@ export type CalculateResult =
   | { kind: 'unexpected'; status: number; message?: string }
   | { kind: 'network' }
 
+export type Calculate = typeof calculate
+
 // The backend's number format: plain (`-0.5`) or scientific (`1.5E+40`).
 const DECIMAL = /^-?\d+(\.\d+)?(E[+-]\d+)?$/
 

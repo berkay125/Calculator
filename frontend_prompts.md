@@ -141,3 +141,22 @@ again, so `Ans*2+1` steps through a recurrence.
 - The old result stays on screen while the repeat is pending. Backspace
   cancels the repeat, and a failed repeat replaces the result with the error.
 - Tests for each rule, each confirmed to fail without it. PLAN.md updated.
+
+## 8. Step 13 (summarized)
+
+- Asked to continue with step 13.
+
+**Changes:**
+
+- `useCalculator` hook: runs the reducer and sends the pending request from
+  an effect. The effect's cleanup aborts the request when an edit cancels it.
+- `Display`: the expression with `×`, `÷`, `−` symbols and the error
+  highlight (a slot after the last character for errors at the end), and the
+  result line with `=` or `≈`, or the error text.
+- `Keypad`: 24 keys in a 4 × 6 grid, with accessible names for symbol keys.
+- `App` takes `calculate` as a prop, so tests control when responses arrive.
+  Basic styling. Responsive layout and accessibility polish are left for step 15.
+- oxlint's `react/exhaustive-deps` rule is enabled, and it was checked to
+  flag a missing dependency.
+- React Testing Library tests, 100% coverage. Removing the abort in the
+  effect's cleanup, or the end-of-expression slot, makes tests fail.
