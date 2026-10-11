@@ -32,6 +32,15 @@ it.each<[string, Action]>([
   expect(onAction).toHaveBeenCalledExactlyOnceWith(action)
 })
 
+it('keys do not take focus when clicked', async () => {
+  render(<Keypad onAction={() => {}} />)
+  const key = screen.getByRole('button', { name: '7' })
+
+  await userEvent.click(key)
+
+  expect(key).not.toHaveFocus()
+})
+
 it('has 24 keys', () => {
   render(<Keypad onAction={() => {}} />)
   expect(screen.getAllByRole('button')).toHaveLength(24)

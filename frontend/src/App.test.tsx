@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App.tsx'
@@ -159,6 +159,61 @@ describe('App', () => {
     await act(async () => resolve({ kind: 'ok', result: '1' }))
     expect(result()).toHaveTextContent('')
     expect(expression()).toHaveTextContent('12')
+  })
+
+  describe('keyboard', () => {
+    it('typing 2*3 and Enter shows the result', async () => {
+      const calculate = respondWith({ kind: 'ok', result: '6' })
+      const user = setup(calculate)
+
+      await user.keyboard('2*3{Enter}')
+
+      expect(await screen.findByText('= 6')).toBeInTheDocument()
+      expect(expression()).toHaveTextContent('2×3')
+      expect(calculate).toHaveBeenCalledWith('2*3', '0', expect.any(AbortSignal))
+    })
+
+    it('edits with Backspace and Escape', async () => {
+      const user = setup(vi.fn<Calculate>())
+      await user.keyboard('s9{Backspace}')
+      expect(expression()).toHaveTextContent('sqrt(')
+      await user.keyboard('{Backspace}a')
+      expect(expression()).toHaveTextContent('Ans')
+      await user.keyboard('{Escape}')
+      expect(expression()).toHaveTextContent('0')
+    })
+
+    it('prevents the default action only for its own keys', () => {
+      setup(vi.fn<Calculate>())
+      // fireEvent returns false when the default action was prevented.
+      expect(fireEvent.keyDown(document.body, { key: '/' })).toBe(false)
+      expect(fireEvent.keyDown(document.body, { key: 'x' })).toBe(true)
+      expect(fireEvent.keyDown(document.body, { key: 'c', ctrlKey: true })).toBe(true)
+      expect(expression()).toHaveTextContent('÷')
+    })
+
+    it('Enter after clicking a key evaluates once and does not press the key again', async () => {
+      const calculate = respondWith({ kind: 'ok', result: '5' })
+      const user = setup(calculate)
+
+      await click(user, '2', 'plus', '3')
+      await user.keyboard('{Enter}')
+
+      expect(await screen.findByText('= 5')).toBeInTheDocument()
+      expect(calculate).toHaveBeenCalledOnce()
+      expect(calculate).toHaveBeenCalledWith('2+3', '0', expect.any(AbortSignal))
+    })
+
+    it('Enter and Space press a key reached with Tab', async () => {
+      const calculate = vi.fn<Calculate>()
+      const user = setup(calculate)
+
+      screen.getByRole('button', { name: '7' }).focus()
+      await user.keyboard('{Enter}[Space]')
+
+      expect(expression()).toHaveTextContent('77')
+      expect(calculate).not.toHaveBeenCalled()
+    })
   })
 
   it('handles the rejection of an aborted request quietly', async () => {

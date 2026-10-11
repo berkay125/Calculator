@@ -53,6 +53,9 @@ export function Keypad({ onAction }: { onAction: (action: Action) => void }) {
           type="button"
           className={key.kind}
           aria-label={key.name}
+          // A clicked key must not keep focus: Enter on the keyboard would
+          // press it again instead of evaluating.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => onAction(key.action)}
         >
           {key.label}

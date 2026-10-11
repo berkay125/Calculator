@@ -160,3 +160,23 @@ again, so `Ans*2+1` steps through a recurrence.
   flag a missing dependency.
 - React Testing Library tests, 100% coverage. Removing the abort in the
   effect's cleanup, or the end-of-expression slot, makes tests fail.
+
+## 9. Step 14 (summarized)
+
+- Approved step 13 and asked to start step 14.
+
+**Changes:**
+
+- `src/calculator/keymap.ts`: a pure `keyToAction(event)`. Ctrl and Meta
+  shortcuts stay with the browser, but AltGr (Ctrl+Alt on Windows) still
+  types. The numpad decimal key inserts `.` on layouts where it types `,`.
+- `useKeyboard(dispatch)`: one `window` listener that calls `preventDefault`
+  only for the keys it handles. A key reached with Tab still presses itself on
+  Enter.
+- Keypad buttons no longer take focus on mouse click (`preventDefault` on
+  mouse down), so Enter evaluates instead of pressing the last clicked key
+  again. PLAN.md now says mouse down, because preventing pointer down does not
+  stop the focus.
+- Tests: a `keyToAction` table and keyboard tests with user-event, 100%
+  coverage. Four rules were broken one at a time to confirm a test fails for
+  each.

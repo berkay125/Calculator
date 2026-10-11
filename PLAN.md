@@ -361,22 +361,25 @@ pinned by tests:
   validate it.
 - **Keyboard mapping.** A pure `keyToAction(event)` function and one `window`
   listener.
-  - Digits and `. + - * / ^ % ( )` insert themselves. `s` inserts `sqrt(` and
-    `a` inserts `Ans`.
+  - Digits and `. + - * / ^ % ( )` insert themselves. `s` or `S` inserts
+    `sqrt(`, and `a` or `A` inserts `Ans`.
   - The numpad decimal key inserts `.`. It is matched by
     `code === 'NumpadDecimal'`, because it types `,` on Turkish and German
-    layouts.
+    layouts. With NumLock off it is Delete and is ignored.
   - Enter and `=` evaluate, Backspace deletes, Escape clears.
   - Events with Ctrl or Meta held are ignored, so Ctrl+C still works. Ctrl+Alt
     is not ignored, because that is how Windows reports AltGr.
-  - `/` calls `preventDefault`, because Firefox otherwise opens quick find.
+  - The listener calls `preventDefault` for every key it handles. Among other
+    things, this keeps `/` from opening Firefox's quick find. Other keys keep
+    their default action.
   - `^` is a dead key on some layouts (Turkish, German, French), where
     `keydown` reports `key: 'Dead'`. Step 14 checks this on a real Turkish
     keyboard.
   - Keypad buttons do not take focus on mouse click (`preventDefault` on
-    pointer down). Otherwise Enter after a click would press the focused button
-    again and also evaluate. When a button has focus from Tab navigation, Enter
-    and Space are left to the button.
+    mouse down; on pointer down it would not stop the focus). Otherwise Enter
+    after a click would press the focused button again instead of
+    evaluating. When a button has focus from Tab navigation, Enter and Space
+    are left to the button.
 - **Testability.** `App` receives `calculate` as a prop that defaults to the
   real client, so component tests decide when responses arrive. Only the
   client tests mock `fetch`.
@@ -811,16 +814,21 @@ generated values are checked against the width and notation rules.
 
 **14. Keyboard support**
 
-- A pure `keyToAction(event)` function and a `window` listener.
+- A pure `keyToAction(event)` function in `calculator/keymap.ts`, and a
+  `useKeyboard(dispatch)` hook that registers the `window` listener.
 - Keypad buttons do not take focus on mouse click.
 
 *Tests:*
 
 - A `keyToAction` table: Ctrl/Meta passthrough, AltGr (Ctrl+Alt) still types,
-  the numpad decimal key, `s` and `a`.
-- Typing `2*3{Enter}` with user-event shows the result.
+  the numpad decimal key (with NumLock on and off), `s` and `a`, and keys that
+  are not ours (a dead key, Space, `x`).
+- Typing `2*3{Enter}` with user-event shows the result. Backspace and Escape
+  edit.
+- `preventDefault` is called for `/`, but not for `x` or Ctrl+C.
 - Enter after clicking a keypad button evaluates once and does not press the
   button again.
+- Enter and Space press a key that was reached with Tab.
 - Manual check of `^` on a Turkish keyboard (dead key).
 
 **15. Polish**
