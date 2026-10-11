@@ -479,12 +479,22 @@ tests yet.
 
 **5. Postfix percent, function calls, variables**
 
+- `%` is a postfix operator with power 5, the tightest: `2^10%` is `2^(10%)`
+  and `-10%` is `-(10%)`. Repeated percent (`50%%`) is allowed.
+- `name(args)` is a `Call` whatever the name. Its `Pos` is the position of the
+  name. An empty argument list (`f()`) parses, and `eval` checks the arity.
+  Whitespace between the name and `(` is allowed.
+- A name without `(` is a `Variable`.
+- Function call parentheses count toward `MaxDepth`.
+- `String()` prints `(% x)` and `(call name args...)`. The `call` tag keeps a
+  function named `group` apart from a `Group` node.
+
 *Tests:*
 
 - AST shapes for `200+10%`, `100+(10%)`, `100+-10%` and `(5+5)%`.
 - `sqrt(9)` parses, and so does `foo(1, 2)`: the parser does not know function
   names.
-- `sqrt(` → `syntax_error`.
+- `sqrt(` → `syntax_error` (`unexpected end of expression` at position 5).
 - `Ans` parses as a `Variable` node.
 
 ### Phase 3: Evaluation (`internal/eval`)

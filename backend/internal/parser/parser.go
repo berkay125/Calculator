@@ -2,7 +2,8 @@ package parser
 
 import "fmt"
 
-// MaxDepth is the deepest parenthesis nesting that Parse accepts.
+// MaxDepth is the most parentheses, from groups and function calls, that can
+// be open at once.
 const MaxDepth = 100
 
 // The precedence table. An operator with a higher power binds tighter.
@@ -12,6 +13,7 @@ const MaxDepth = 100
 //	2      * /       left
 //	3      unary -   prefix
 //	4      ^         right
+//	5      %         postfix
 var binaryOps = map[tokenKind]struct {
 	power      int
 	rightAssoc bool
@@ -23,9 +25,12 @@ var binaryOps = map[tokenKind]struct {
 	tokCaret: {power: 4, rightAssoc: true},
 }
 
-// unaryPower is the binding power of unary minus. It sits between * and ^, so
-// -2^2 is -(2^2) while -2*3 is (-2)*3.
-const unaryPower = 3
+const (
+	// unaryPower sits between * and ^, so -2^2 is -(2^2) while -2*3 is (-2)*3.
+	unaryPower = 3
+	// percentPower is the tightest, so 2^10% is 2^(10%) and -10% is -(10%).
+	percentPower = 5
+)
 
 // Parse turns an expression into a syntax tree. Malformed input returns a
 // *SyntaxError, and parentheses nested deeper than MaxDepth return a
@@ -64,15 +69,22 @@ func (p *parser) advance() error {
 	return nil
 }
 
-// expr parses an expression whose binary operators, outside parentheses, all
-// have at least minPower. A looser operator ends the expression and is left
-// for the caller.
+// expr parses an expression whose operators, outside parentheses, all have at
+// least minPower. A looser operator ends the expression and is left for the
+// caller.
 func (p *parser) expr(minPower int) (Node, error) {
 	left, err := p.unary()
 	if err != nil {
 		return nil, err
 	}
 	for {
+		if p.tok.kind == tokPercent && percentPower >= minPower {
+			left = &Percent{X: left, Pos: p.tok.pos}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		op, ok := binaryOps[p.tok.kind]
 		if !ok || op.power < minPower {
 			return left, nil
@@ -113,7 +125,8 @@ func (p *parser) unary() (Node, error) {
 	return &Unary{Op: opTok.text, X: x, Pos: opTok.pos}, nil
 }
 
-// primary parses a number or a parenthesized expression.
+// primary parses a number, a variable, a function call or a parenthesized
+// expression.
 func (p *parser) primary() (Node, error) {
 	switch p.tok.kind {
 	case tokNumber:
@@ -122,37 +135,91 @@ func (p *parser) primary() (Node, error) {
 			return nil, err
 		}
 		return n, nil
+	case tokIdent:
+		name := p.tok
+		if err := p.advance(); err != nil {
+			return nil, err
+		}
+		if p.tok.kind == tokLParen {
+			return p.call(name)
+		}
+		return &Variable{Name: name.text, Pos: name.pos}, nil
 	case tokLParen:
 		return p.group()
 	}
 	return nil, p.unexpected()
 }
 
+// call parses the argument list that follows the function name. Any name is
+// accepted: the evaluator looks it up, so adding a function does not touch the
+// parser.
+func (p *parser) call(name token) (Node, error) {
+	open, err := p.openParen()
+	if err != nil {
+		return nil, err
+	}
+	var args []Node
+	if p.tok.kind != tokRParen {
+		for {
+			arg, err := p.expr(0)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+			if p.tok.kind != tokComma {
+				break
+			}
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := p.closeParen(open); err != nil {
+		return nil, err
+	}
+	return &Call{Name: name.text, Args: args, Pos: name.pos}, nil
+}
+
 // group parses "(" expression ")" into a Group node.
 func (p *parser) group() (Node, error) {
-	open := p.tok
-	if p.depth == MaxDepth {
-		return nil, &NestingError{Offset: open.pos}
-	}
-	p.depth++
-	if err := p.advance(); err != nil {
+	open, err := p.openParen()
+	if err != nil {
 		return nil, err
 	}
 	inner, err := p.expr(0)
 	if err != nil {
 		return nil, err
 	}
-	if p.tok.kind != tokRParen {
-		if p.tok.kind == tokEOF {
-			return nil, &SyntaxError{Msg: "unclosed parenthesis", Offset: open.pos}
-		}
-		return nil, p.unexpected()
-	}
-	p.depth--
-	if err := p.advance(); err != nil {
+	if err := p.closeParen(open); err != nil {
 		return nil, err
 	}
 	return &Group{Inner: inner, Pos: open.pos}, nil
+}
+
+// openParen consumes "(" and enforces MaxDepth. It returns the "(" token for
+// the matching closeParen.
+func (p *parser) openParen() (token, error) {
+	open := p.tok
+	if p.depth == MaxDepth {
+		return token{}, &NestingError{Offset: open.pos}
+	}
+	p.depth++
+	if err := p.advance(); err != nil {
+		return token{}, err
+	}
+	return open, nil
+}
+
+// closeParen consumes the ")" that matches open.
+func (p *parser) closeParen(open token) error {
+	if p.tok.kind != tokRParen {
+		if p.tok.kind == tokEOF {
+			return &SyntaxError{Msg: "unclosed parenthesis", Offset: open.pos}
+		}
+		return p.unexpected()
+	}
+	p.depth--
+	return p.advance()
 }
 
 // unexpected reports the current token as a syntax error.

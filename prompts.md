@@ -206,3 +206,21 @@ pow returns wrong errors for huge exponents they returns underflow but it should
   is not supported.
 - PLAN.md step 7: the fuzz round trip goes through a test-only infix printer.
   `String()` prints an S-expression, which the parser cannot read back.
+
+## 11. Step 5 (summarized)
+
+- Asked to continue with step 5 after committing step 4.
+
+**Changes:**
+
+- `parser` package gains:
+  - `Variable`, `Call` and `Percent` nodes
+  - postfix `%` as the tightest entry of the precedence table
+  - function calls with any name and any number of arguments; their
+    parentheses count toward the nesting limit
+- Tests for the percent AST shapes from PLAN.md, calls, variables, error
+  positions inside argument lists and nesting through calls. Coverage stays at
+  100%.
+- Each new rule (the power of `%`, call parsing, call depth, the `call` tag in
+  `String()`) was broken once to confirm a test fails without it.
+- PLAN.md step 5 records these rules.

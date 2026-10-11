@@ -63,6 +63,36 @@ func TestParse(t *testing.T) {
 		{"-(2 + 3)", "(- (group (+ 2 3)))"},
 		{"(1 - 2) - 3", "(- (group (- 1 2)) 3)"},
 		{"1 - (2 - 3)", "(- 1 (group (- 2 3)))"},
+		// Percent is a postfix operator that binds tightest. The percent rule
+		// is applied by the evaluator; the parser only builds the node.
+		{"50%", "(% 50)"},
+		{"200+10%", "(+ 200 (% 10))"},
+		{"100+(10%)", "(+ 100 (group (% 10)))"},
+		{"100+-10%", "(+ 100 (- (% 10)))"},
+		{"100 - --10%", "(- 100 (- (- (% 10))))"},
+		{"(5+5)%", "(% (group (+ 5 5)))"},
+		{"100+(5+5)%", "(+ 100 (% (group (+ 5 5))))"},
+		{"200+10%*2", "(+ 200 (* (% 10) 2))"},
+		{"200+10%+10%", "(+ (+ 200 (% 10)) (% 10))"},
+		{"2^10%", "(^ 2 (% 10))"},
+		{"10%^2", "(^ (% 10) 2)"},
+		{"50%%", "(% (% 50))"},
+		// Variables.
+		{"Ans", "Ans"},
+		{"Ans*2", "(* Ans 2)"},
+		{"-Ans%", "(- (% Ans))"},
+		{"x", "x"},
+		// Function calls. The parser does not know function names.
+		{"sqrt(9)", "(call sqrt 9)"},
+		{"foo(1, 2)", "(call foo 1 2)"},
+		{"f()", "(call f)"},
+		{"sqrt (9)", "(call sqrt 9)"},
+		{"group(9)", "(call group 9)"},
+		{"sqrt(sqrt(16))", "(call sqrt (call sqrt 16))"},
+		{"2*sqrt(1+3)^2", "(* 2 (^ (call sqrt (+ 1 3)) 2))"},
+		{"-sqrt(4)", "(- (call sqrt 4))"},
+		{"sqrt(4)%", "(% (call sqrt 4))"},
+		{"f((1), -2, 3%)", "(call f (group 1) (- 2) (% 3))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -79,6 +109,16 @@ func withPositions(t *testing.T, n Node) string {
 	switch n := n.(type) {
 	case *Number:
 		return fmt.Sprintf("%s@%d", n.Text, n.Pos)
+	case *Variable:
+		return fmt.Sprintf("%s@%d", n.Name, n.Pos)
+	case *Call:
+		s := fmt.Sprintf("(call %s@%d", n.Name, n.Pos)
+		for _, arg := range n.Args {
+			s += " " + withPositions(t, arg)
+		}
+		return s + ")"
+	case *Percent:
+		return fmt.Sprintf("(%%@%d %s)", n.Pos, withPositions(t, n.X))
 	case *Unary:
 		return fmt.Sprintf("(%s@%d %s)", n.Op, n.Pos, withPositions(t, n.X))
 	case *Binary:
@@ -98,6 +138,7 @@ func TestParsePositions(t *testing.T) {
 		{"2 * (3 + 4) ^ 2", "(*@2 2@0 (^@12 (group@4 (+@7 3@5 4@9)) 2@14))"},
 		{" -2 ^ -1", "(-@1 (^@4 2@2 (-@6 1@7)))"},
 		{"12.5-.5", "(-@4 12.5@0 .5@5)"},
+		{"Ans + sqrt(9, 10%)", "(+@4 Ans@0 (call sqrt@6 9@11 (%@16 10@14)))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -130,10 +171,24 @@ func TestParseErrors(t *testing.T) {
 		{"* 2", 0, "unexpected '*'"},
 		{"2 + * 3", 4, "unexpected '*'"},
 		{"+2", 0, "unexpected '+'"},
+		{"%", 0, "unexpected '%'"},
+		{"2 + %", 4, "unexpected '%'"},
+		{"1, 2", 1, "unexpected ','"},
+		{"(1, 2)", 2, "unexpected ','"},
+		// Function calls.
+		{"sqrt(", 5, "unexpected end of expression"},
+		{"sqrt(9", 4, "unclosed parenthesis"},
+		{"sqrt(1,", 7, "unexpected end of expression"},
+		{"f(1,)", 4, "unexpected ')'"},
+		{"f(,1)", 2, "unexpected ','"},
+		{"f(1 2)", 4, "unexpected '2'"},
+		{"sqrt 9", 5, "unexpected '9'"},
 		// Implicit multiplication and scientific notation are not supported.
 		{"2(3)", 1, "unexpected '('"},
 		{"(2)(3)", 3, "unexpected '('"},
 		{"2x", 1, "unexpected 'x'"},
+		{"2 sqrt(4)", 2, "unexpected 'sqrt'"},
+		{"Ans Ans", 4, "unexpected 'Ans'"},
 		{"1e5", 1, "unexpected 'e5'"},
 		// Lexer errors pass through. Tokens are read on demand, so the leftmost
 		// error wins whether it is lexical or syntactic.
@@ -142,6 +197,9 @@ func TestParseErrors(t *testing.T) {
 		{"-$", 1, "unexpected character '$'"},
 		{"($", 1, "unexpected character '$'"},
 		{"(1)$", 3, "unexpected character '$'"},
+		{"1%$", 2, "unexpected character '$'"},
+		{"Ans$", 3, "unexpected character '$'"},
+		{"f(1,$", 4, "unexpected character '$'"},
 		{") $", 0, "unexpected ')'"},
 		{"$ )", 0, "unexpected character '$'"},
 	}
@@ -163,13 +221,21 @@ func TestParseNesting(t *testing.T) {
 	nested := func(depth int) string {
 		return strings.Repeat("(", depth) + "1" + strings.Repeat(")", depth)
 	}
-
-	if _, err := Parse(nested(MaxDepth)); err != nil {
-		t.Errorf("Parse at MaxDepth: %v", err)
+	nestedCalls := func(depth int) string {
+		return strings.Repeat("sqrt(", depth) + "1" + strings.Repeat(")", depth)
 	}
-	// Depth counts open parentheses only, so siblings do not add up.
-	if _, err := Parse(strings.Repeat(nested(MaxDepth)+"+", 3) + "1"); err != nil {
-		t.Errorf("Parse of sibling groups at MaxDepth: %v", err)
+
+	for _, in := range []string{
+		nested(MaxDepth),
+		nestedCalls(MaxDepth),
+		strings.Repeat("(sqrt(", MaxDepth/2) + "1" + strings.Repeat("))", MaxDepth/2),
+		// Depth counts open parentheses only, so siblings do not add up.
+		strings.Repeat(nested(MaxDepth)+"+", 3) + "1",
+		"f(" + nested(MaxDepth-1) + ", " + nested(MaxDepth-1) + ")",
+	} {
+		if _, err := Parse(in); err != nil {
+			t.Errorf("Parse(%.20q...): %v", in, err)
+		}
 	}
 
 	tests := []struct {
@@ -180,6 +246,9 @@ func TestParseNesting(t *testing.T) {
 		{"one level too deep", nested(MaxDepth + 1), MaxDepth},
 		{"far too deep", nested(10 * MaxDepth), MaxDepth},
 		{"inside a sibling group", nested(1) + "+" + nested(MaxDepth+1), len("(1)+") + MaxDepth},
+		// Function call parentheses count too; the error points at the "(".
+		{"nested calls", nestedCalls(MaxDepth + 1), MaxDepth*len("sqrt(") + len("sqrt")},
+		{"call inside groups", strings.Repeat("(", MaxDepth) + "f(1)" + strings.Repeat(")", MaxDepth), MaxDepth + len("f")},
 		// The limit is hit before the lexer reaches the invalid character.
 		{"before a lexer error", strings.Repeat("(", MaxDepth+1) + "$", MaxDepth},
 	}
