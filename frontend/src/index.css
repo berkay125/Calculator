@@ -1,6 +1,11 @@
+/* The design (Calculator UI.html) is light only. */
 :root {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light dark;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--sans);
+  color: #16181d;
+  background: #f3f4f1;
+  color-scheme: light;
 }
 
 *,
@@ -11,4 +16,14 @@
 
 body {
   margin: 0;
+}
+
+/* Read by screen readers, hidden on screen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

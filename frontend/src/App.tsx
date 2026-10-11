@@ -11,13 +11,22 @@ function App({ calculate = callApi }: { calculate?: Calculate }) {
   useKeyboard(dispatch)
   return (
     <main className="calculator">
-      <h1>Calculator</h1>
-      <Display
-        expression={state.expression}
-        result={state.result}
-        error={state.error}
-      />
-      <Keypad onAction={dispatch} />
+      <header className="header">
+        <h1>Calculator</h1>
+        <p>Exact decimal arithmetic, computed on the server.</p>
+      </header>
+      <div className="card">
+        <Display
+          expression={state.expression}
+          result={state.result}
+          error={state.error}
+          pending={state.pending !== null}
+        />
+        <Keypad onAction={dispatch} />
+        <p className="hint">
+          Type freely · <kbd>Enter</kbd> to calculate · <kbd>Esc</kbd> to clear
+        </p>
+      </div>
     </main>
   )
 }

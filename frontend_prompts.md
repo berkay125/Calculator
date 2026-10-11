@@ -180,3 +180,44 @@ again, so `Ans*2+1` steps through a recurrence.
 - Tests: a `keyToAction` table and keyboard tests with user-event, 100%
   coverage. Four rules were broken one at a time to confirm a test fails for
   each.
+
+## 10. Dead-key result and step 15
+
+```text
+Shift+3 = ^, Shift+3 + 2 = 2 after that step 15: keep the end of a long expression in view, and scroll the error highlight into view. show a loading state while a request is pending. role="alert" on errors. check the layout on a 390px phone.
+```
+
+The first part reports the manual check of the dead `^` key on a Turkish
+keyboard.
+
+## 11. UI design file
+
+```text
+i added calculator ui file in the root directory. i made it when i planned assignment. you can look to it for ui
+```
+
+Sent while step 15 was in progress. `Calculator UI.html` is a design made in
+a separate conversation with Claude while planning.
+
+**Changes (prompts 10 and 11):**
+
+- PLAN.md records the dead-key result: Shift+3 then Space types `^`, and
+  Shift+3 then a digit loses it.
+- The display keeps the end of a long expression in view, or scrolls the
+  error highlight into view.
+- Loading state: `aria-busy` on the result, and dots (or a dimmed old
+  result) that appear only after 200 ms, so fast requests do not flash.
+- Errors are shown in a `role="alert"` element with a code badge. Syntax
+  errors add the column. The expression gets `aria-invalid` and
+  `aria-describedby`.
+- The UI follows the design: a dark display card, keys colored by kind, the
+  design's key order and accessible names, IBM Plex fonts self-hosted through
+  `@fontsource`, and a card layout from 600px.
+- Rounded results switch to a smaller font and show the exact value with a
+  copy button, as in the design's long-result page.
+- Left out of the design: the history panel (out of scope) and spaces in the
+  expression (the display must match the request).
+- The layout was checked in headless Chrome at 390 × 844 and at desktop
+  width, with a mocked API, and compared with screenshots of the design. That
+  check found that the error underline was clipped, and it was fixed.
+- Tests updated and extended, 100% coverage.

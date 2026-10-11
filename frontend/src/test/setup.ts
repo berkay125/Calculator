@@ -6,3 +6,6 @@ import { afterEach } from 'vitest'
 afterEach(() => {
   cleanup()
 })
+
+// jsdom has no layout, so it has no scrollIntoView. Tests spy on this stub.
+Element.prototype.scrollIntoView = () => {}

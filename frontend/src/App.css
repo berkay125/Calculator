@@ -1,70 +1,365 @@
+/* Values follow the design in Calculator UI.html. Mobile first; the card
+   layout starts at 600px. */
+
 .calculator {
-  max-width: 22rem;
-  margin: 2rem auto;
-  padding: 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100dvh;
+  padding: 20px 20px 28px;
 }
 
-.calculator h1 {
-  font-size: 1.25rem;
+.header h1 {
+  margin: 0;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 44px;
+  letter-spacing: -0.01em;
 }
+
+.header p,
+.hint {
+  display: none;
+}
+
+.card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Display */
 
 .display {
-  margin-bottom: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid #8888;
-  border-radius: 0.5rem;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  text-align: right;
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 28px;
+  background: #15171c;
+  color: #fff;
+}
+
+.display.invalid {
+  box-shadow: inset 0 0 0 2px #7a2a1c;
+}
+
+.precision {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8f99;
+}
+
+.readout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+  min-width: 0;
 }
 
 .expression {
-  min-height: 1.5em;
+  max-width: 100%;
+  /* Room for the error underline, which the scroll box would clip. */
+  padding-bottom: 8px;
   overflow-x: auto;
   white-space: pre;
+  font-family: var(--mono);
+  font-size: 22px;
+  color: #c9ccd3;
+  scrollbar-width: none;
 }
 
 .expression .placeholder {
-  opacity: 0.5;
+  color: #8a8f99;
 }
 
 .expression mark {
-  border-bottom: 2px solid #d33;
-  background: #d333;
-  color: inherit;
+  border-radius: 4px;
+  background: #5a1e14;
+  color: #ffb4a3;
+  text-decoration: underline wavy #ff8a73;
+  text-underline-offset: 5px;
 }
 
 .result {
-  display: block;
-  min-height: 1.5em;
-  font-size: 1.75rem;
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
-.result.error {
-  color: #d33;
-  font-size: 1.125rem;
+.result.long {
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
-.keypad {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+.result .marker {
+  margin-right: 12px;
+  font-weight: 400;
+  color: #8a8f99;
 }
 
-.keypad button {
-  padding: 0.75rem 0;
-  border: 1px solid #8886;
-  border-radius: 0.5rem;
-  font-size: 1.25rem;
+.result.long .marker {
+  margin-right: 10px;
+}
+
+/* The loading state appears only after 200 ms, so fast requests do not flash:
+   an old result (a repeated =) dims, otherwise dots appear. */
+.result.pending {
+  animation: dim 0s 200ms forwards;
+}
+
+.result .dots {
+  animation: reveal 0s 200ms backwards;
+}
+
+@keyframes dim {
+  to {
+    opacity: 0.5;
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+  }
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  color: #ffb4a3;
+  text-align: right;
+}
+
+.error .code {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #3a1a14;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.error .message {
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.exact {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #2a2d35;
+}
+
+.exact-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+}
+
+.exact-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8f99;
+}
+
+.exact-value {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c9ccd3;
+  word-break: break-all;
+}
+
+.copy {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: #23262e;
+  color: #c9ccd3;
   cursor: pointer;
 }
 
-.keypad .operator,
-.keypad .control {
-  background: #8882;
+/* Keypad */
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.keypad button {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 18px;
+  font-family: var(--sans);
+  font-size: 22px;
+  font-weight: 500;
+  color: #16181d;
+  cursor: pointer;
+  transition: background-color 80ms ease-out;
+}
+
+.keypad .digit {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e3e1db;
+  font-size: 24px;
+}
+
+.keypad .digit:active {
+  background: #e3e1db;
+}
+
+.keypad .op {
+  background: #e9e6df;
+  font-size: 26px;
+}
+
+.keypad .op:active {
+  background: #d3cdc1;
+}
+
+.keypad .fn,
+.keypad .ans {
+  background: #dce6e4;
+  color: #0f4c45;
+}
+
+.keypad .fn:active,
+.keypad .ans:active {
+  background: #b9cfca;
+}
+
+.keypad .ans {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.keypad .clear {
+  background: #f6e3dc;
+  color: #8a2a14;
+  font-weight: 600;
+}
+
+.keypad .clear:active {
+  background: #ebc3b4;
 }
 
 .keypad .equals {
-  background: #2563eb;
-  color: white;
+  background: #c2410c;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.keypad .equals:active {
+  background: #923109;
+}
+
+button:focus-visible {
+  outline: 2px solid #0f4c45;
+  outline-offset: 2px;
+}
+
+.copy:focus-visible {
+  outline-color: #c9ccd3;
+}
+
+/* Wider screens: the calculator becomes a card. */
+
+@media (min-width: 600px) {
+  .calculator {
+    gap: 32px;
+    max-width: 508px;
+    min-height: auto;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+
+  .header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .header h1 {
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  .header p {
+    display: block;
+    margin: 0;
+    font-size: 16px;
+    color: #5b5f66;
+  }
+
+  .card {
+    padding: 20px;
+    border-radius: 28px;
+    box-shadow:
+      inset 0 0 0 1px #e3e1db,
+      0 8px 24px rgb(22 24 29 / 6%);
+  }
+
+  .display {
+    flex: none;
+    min-height: 210px;
+    padding: 22px;
+    border-radius: 20px;
+  }
+
+  .readout {
+    gap: 12px;
+  }
+
+  .result {
+    font-size: 52px;
+  }
+
+  .hint {
+    display: block;
+    margin: 0;
+    font-size: 13px;
+    color: #5b5f66;
+    text-align: center;
+  }
+
+  .hint kbd {
+    padding: 1px 6px;
+    border: 1px solid #e3e1db;
+    border-radius: 6px;
+    background: #f3f4f1;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
 }

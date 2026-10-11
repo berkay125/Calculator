@@ -253,7 +253,9 @@ apd directly, so no grammar is involved.
   `-12345678901234567890123456789012345 + 12345678901234567890123456789012344`
   is exactly `-1`.
 - **Rounded to 34 digits:** `1/3` and `sqrt(2)`.
-- **Approximate:** non-integer powers, which apd computes through ln/exp.
+- **Approximate:** non-integer powers, which apd computes through ln/exp. A
+  base with more than 44 digits is split into integer and fractional powers
+  first (see step 7).
 - **Example:** `1/3*3` is `0.999…9`. The display rounds it to `1`, while `Ans`
   keeps the exact value. Phone calculators work the same way, and the README
   documents this trade-off.
@@ -314,21 +316,33 @@ pinned by tests:
     stays on screen until the new one arrives, and a failed repeat replaces it
     with the error. Without `Ans`, `=` does nothing. The last operation is
     never repeated phone-style (`+5`, `=`, `=`).
-- **Keypad.** Four columns, six rows:
+- **Keypad.** Four columns, six rows, as in the design:
 
   ```
-  C   ⌫   (   )
-  √   ^   %   ÷
+  C   (   )   ⌫
+  √   xʸ  %   ÷
   7   8   9   ×
   4   5   6   −
   1   2   3   +
   0   .   Ans =
   ```
 
-  - `√` inserts `sqrt(`, and `Ans` inserts `Ans`, the variable name the
-    backend expects.
-  - Keys labeled with a symbol have an accessible name (`divide`,
-    `square root`, `answer`, ...).
+  - `√` inserts `sqrt(`, `xʸ` inserts `^`, and `Ans` inserts `Ans`, the
+    variable name the backend expects.
+  - Accessible names come from the design: `Clear`, `Delete` (⌫), `Power`,
+    `Insert last answer`, `Calculate` (=), ...
+- **Visual design.** It follows `Calculator UI.html` at the repository root,
+  made while planning:
+  - A dark display card over a light page, keys colored by kind (digits,
+    operators, functions, Clear and Delete, `=`).
+  - IBM Plex Sans and IBM Plex Mono, self-hosted through `@fontsource`, so
+    the app makes no third-party requests.
+  - Phones: the display grows to fill the screen above the keypad. From
+    600px wide: a centered card with the subtitle and a keyboard hint.
+  - The display's top label reads "Decimal · 34 digits".
+  - Not taken from the design: the history panel and button (history is out
+    of scope), and spaces in the expression (the display must match the
+    request).
 - **Display matches the request.** The expression on screen must equal the
   string sent to the backend character for character, or error positions drift.
   - One-character visual swaps are fine: `*` → `×`, `/` → `÷`, `-` → `−`
@@ -338,6 +352,23 @@ pinned by tests:
 - **Error highlighting.** Positional errors highlight the offending character.
   The position can equal the expression length (an error at the end, as in
   `2+`). Then a placeholder after the last character is highlighted.
+- **Errors on screen.** The display gets a red outline. Under the expression,
+  an element with `role="alert"` shows:
+  - A badge with the code (`SYNTAX_ERROR`, or `HTTP 502` for an unexpected
+    response). It is hidden from screen readers.
+  - The message. Syntax errors add the column (`Unexpected ')' at column 4`),
+    which also tells screen-reader users where the problem is.
+
+  The expression is marked `aria-invalid` and points to the alert with
+  `aria-describedby`.
+- **Results on screen.** The result is an `<output>` with `aria-live`.
+  - Results over 7 characters switch from 56px to 30px, so 14 characters fit
+    a 390px phone.
+  - Screen readers hear "Equals" or "Approximately" instead of the `=` or `≈`
+    marker.
+  - A rounded result also shows its exact value under a divider, with a copy
+    button. The clipboard API works only in secure contexts (https,
+    localhost).
 - **Display formatter.** `formatForDisplay(exact)` returns `{ text, rounded }`,
   following [Display formatting](#display-formatting). It rounds on the
   decimal string itself and never calls `Number()`. `Number()` would lose
@@ -373,8 +404,10 @@ pinned by tests:
     things, this keeps `/` from opening Firefox's quick find. Other keys keep
     their default action.
   - `^` is a dead key on some layouts (Turkish, German, French), where
-    `keydown` reports `key: 'Dead'`. Step 14 checks this on a real Turkish
-    keyboard.
+    `keydown` reports `key: 'Dead'`. Checked on a Turkish Q keyboard:
+    Shift+3 then Space types `^`, but Shift+3 then a digit types only the
+    digit, because the browser never reports the `^`. The keypad's `xʸ` key
+    always works.
   - Keypad buttons do not take focus on mouse click (`preventDefault` on
     mouse down; on pointer down it would not stop the focus). Otherwise Enter
     after a click would press the focused button again instead of
@@ -829,15 +862,31 @@ generated values are checked against the width and notation rules.
 - Enter after clicking a keypad button evaluates once and does not press the
   button again.
 - Enter and Space press a key that was reached with Tab.
-- Manual check of `^` on a Turkish keyboard (dead key).
+- Manual check of `^` on a Turkish keyboard (dead key): Shift+3 then Space
+  types `^`, Shift+3 then a digit loses the `^`.
 
 **15. Polish**
 
-- Accessibility: `aria-live` on the result and labels on all buttons.
-- Responsive layout.
-- Long expressions scroll horizontally and keep the end, or the error
-  highlight, in view.
-- Loading state while a request is pending.
+- The visual design from `Calculator UI.html`, mobile first.
+- Accessibility: `aria-live` on the result, `role="alert"` on errors,
+  `aria-invalid` and `aria-describedby` on the expression, and labels on all
+  buttons.
+- Long expressions scroll horizontally and keep the end in view while
+  typing. When there is an error, the highlight is scrolled into view
+  instead.
+- Loading state while a request is pending: `aria-busy` on the result, and
+  after 200 ms dots appear (or an old result dims), so fast requests do not
+  flash.
+- The exact value of a rounded result, with a copy button.
+
+*Tests:* the loading state, the old result kept during a repeated `=`, both
+kinds of scrolling, the error badge, message and description, the rounded
+result with its exact value, and copying it (including a clipboard failure).
+
+*Layout check:* headless Chrome at 390 × 844 with a mocked API: no
+horizontal page scroll, 80 × 64px keys, the whole calculator on one screen,
+a 34-character exact value wraps, and the scroll positions behave as above.
+Compared side by side with the design's screenshots.
 
 ### Phase 6: Packaging and delivery
 
