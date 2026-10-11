@@ -455,8 +455,13 @@ tests yet.
 
 **4. AST and precedence climbing**
 
-- Binary operators, unary minus, and parentheses as `Group` nodes.
-- Depth limit (`nesting_too_deep`).
+- Binary operators, unary minus, and parentheses as `Group` nodes. `Op` holds
+  the operator as written (`"+"`, `"-"`, ...).
+- Unary plus is not supported: `+2` is a `syntax_error`.
+- Depth limit (`nesting_too_deep`): at most `MaxDepth` = 100 parentheses can
+  be open at once. The error points at the first `(` beyond the limit.
+  Parentheses that are already closed do not count, so sibling groups do not
+  add up.
 - S-expression `String()`.
 
 *Tests:*
@@ -467,6 +472,10 @@ tests yet.
 - `2 * (3 + 4) ^ 2` → `(* 2 (^ (group (+ 3 4)) 2))`.
 - Errors with their positions: `""`, `"2 +"`, `"(2"`, `"2)"`, `"2 3"`, `"* 2"`,
   `"2(3)"`.
+  - Empty input → `empty expression`.
+  - A missing operand → `unexpected end of expression` at the end of the input.
+  - An unclosed parenthesis → `unclosed parenthesis` at its `(`.
+  - Any other token in the wrong place → `unexpected 'x'` at that token.
 
 **5. Postfix percent, function calls, variables**
 
@@ -508,8 +517,13 @@ Invariants:
 
 - No input panics.
 - Positional errors always fall within `[0, len(input)]`.
-- For valid input, `parse(ast.String())` returns the same AST. This round trip
-  also checks that parentheses are preserved.
+- For valid input, `Parse(infix(ast))` returns the same AST, compared through
+  `String()`. This round trip checks that parentheses are preserved and that
+  precedence is rebuilt correctly.
+  - `infix` is a test-only printer. It writes `Group` nodes as parentheses and
+    adds no others, so the tree shape must come back from precedence alone.
+  - `String()` cannot be used here: it prints an S-expression, which the
+    parser does not accept.
 
 ### Phase 4: HTTP (`internal/api`, `cmd/server`)
 

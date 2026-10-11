@@ -184,3 +184,25 @@ pow returns wrong errors for huge exponents they returns underflow but it should
   a test fails without it.
 - PLAN.md step 3 records the identifier rules, the whitespace set and the error
   positions.
+
+## 10. Step 4 (summarized)
+
+- Approved step 3 and asked to continue with step 4.
+- Agreed with the step 4 decisions and with fixing the step 7 round trip.
+
+**Changes:**
+
+- `parser` package gains:
+  - AST nodes `Number`, `Unary`, `Binary` and `Group`, with an S-expression
+    `String()`
+  - `Parse`: precedence climbing over a single binding-power table, with
+    unary minus between `*` and `^`
+  - `NestingError` (`nesting_too_deep`) once more than 100 parentheses are open
+- Tests for precedence, associativity, node positions and every error position
+  listed in PLAN.md. Coverage stays at 100%.
+- Each rule (associativity of `^`, the power of unary minus, the depth limit,
+  `Group` nodes) was broken once to confirm a test fails without it.
+- PLAN.md step 4 records the error messages, the depth rule and that unary plus
+  is not supported.
+- PLAN.md step 7: the fuzz round trip goes through a test-only infix printer.
+  `String()` prints an S-expression, which the parser cannot read back.
