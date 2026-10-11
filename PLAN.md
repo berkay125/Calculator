@@ -877,6 +877,19 @@ The frontend depends only on the [API contract](#api-contract), so this phase
 runs in parallel with phases 2–4 against a mocked API. An end-to-end check
 against the real backend follows step 9.
 
+*End-to-end check (after step 9):* headless Chrome drives the real frontend
+against the real server, typing on the keyboard. 19 checks pass:
+
+- Results: precedence, exact decimals, percent, a negative result, rounded
+  results (`1/3`, `2^100`) with their exact values, and a small result shown
+  as `1E-6`.
+- `Ans`: it starts at `0`, repeated `=` steps `Ans*2+1` through 1, 3, 7, and an
+  operator after a result continues from `Ans`.
+- Errors: a syntax error in the middle and at the end, division by zero, a
+  domain error, overflow, underflow, nesting too deep, and an expression that
+  is too long. These are all the errors the keypad can produce. Each shows the
+  right message, badge and highlight.
+
 **10. API client**
 
 - `calculate(expression, ans, signal?)` returns a discriminated union: `ok`,

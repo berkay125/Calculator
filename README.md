@@ -281,6 +281,9 @@ The layout follows `Calculator UI.html`, a design made while planning.
 - The key rules were checked by breaking each one on purpose and confirming
   that a test fails.
 - The layout was checked in headless Chrome at 390 × 844 and at desktop width.
+- An end-to-end check in headless Chrome typed 19 scenarios against the real
+  server: results, rounding, `Ans` and repeated `=`, and every error the
+  keypad can produce.
 
 #### Known limitations
 
