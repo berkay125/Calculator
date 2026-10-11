@@ -1,0 +1,631 @@
+# Calculator: Implementation Plan
+
+A calculator with a React + TypeScript frontend and a Go backend. The backend
+exposes a single endpoint that parses and evaluates an expression string using a
+hand-written parser and decimal arithmetic.
+
+## Goals
+
+- `POST /api/v1/calculate` evaluates expressions such as `2 * (3 + 4) ^ 2`.
+- Supported: `+ - * /`, exponentiation `^`, `sqrt`, percent `%`, parentheses,
+  negative numbers.
+- Hand-written parser. Binary operators use precedence climbing, and their
+  precedence lives in one table.
+- Decimal arithmetic (`cockroachdb/apd`), so `0.1 + 0.2` is exactly `0.3`.
+  Numbers cross the API as strings.
+- Percent works like a phone calculator: `200 + 10% = 220`.
+- New functions can be added without touching the parser.
+- Clear errors that separate invalid input (400) from undefined math (422).
+  Syntax errors report where the problem is.
+- Frontend: a keypad that also works from the keyboard, an `Ans` key, and long
+  results rounded on screen while the exact value is kept.
+- Standard library wherever possible. Math, parsing, evaluation and HTTP are
+  separate packages. Every part has tests, and coverage reports are delivered.
+- Shipped as a single image built by a multi-stage Dockerfile.
+
+## Resolved decisions
+
+| Topic | Decision |
+|---|---|
+| `-2^2` | `-4`: unary minus binds looser than `^` |
+| `2^3^2` | `512`: `^` is right-associative |
+| `0^0` | `1`, special-cased if apd returns something else |
+| Precision | 34 significant digits (same as decimal128) |
+| Implicit multiplication (`2(3)`, `2sqrt(4)`) | Not supported; returns `syntax_error` |
+| Number literals | `.5` is accepted and `5.` is rejected. No scientific notation in input |
+| Output format | Plain notation inside an exponent threshold, scientific (`1.5E+40`) outside it. Trailing zeros are stripped and `-0` becomes `0` |
+| Percent | See [Percent semantics](#percent-semantics). Parentheses block the rule; unary minus does not |
+| `Ans` | Sent as a separate `ans` field and referenced as a variable. It is never substituted into the expression text |
+| HTTP status | 400 for invalid input, 422 for undefined math |
+| Error codes | Specific codes (`syntax_error`, `unknown_function`, `division_by_zero`, ...). See [Error catalog](#error-catalog) |
+| Coverage | A snapshot is committed under `coverage/`, and one command regenerates it |
+| Deployment | One image: the Go binary serves both the API and the embedded frontend build |
+| Language | Everything in the repository is written in English |
+
+## Project structure
+
+```
+calculator/
+├── backend/
+│   ├── go.mod
+│   ├── cmd/server/main.go     # thin main; real work in a testable run()
+│   └── internal/
+│       ├── arith/             # math: apd context, operations, function registry, MathError
+│       ├── parser/            # lexer, AST, precedence climbing, SyntaxError
+│       ├── eval/              # AST -> arith: percent rule, name resolution, variables (Ans)
+│       ├── api/               # handler, request/response types, error -> HTTP mapping
+│       └── web/               # embedded frontend build (go:embed) and static handler
+├── frontend/                  # Vite + React + TypeScript
+│   └── src/
+│       ├── api/               # fetch client and types (incl. ErrorCode union)
+│       ├── calculator/        # reducer, keymap, display formatter (all pure functions)
+│       ├── components/        # Display, Keypad
+│       └── App.tsx
+├── coverage/                  # committed coverage report snapshot (deliverable)
+├── Dockerfile
+├── .dockerignore
+├── .gitattributes
+├── PLAN.md
+└── README.md
+```
+
+### Dependency direction
+
+Dependencies point one way only:
+
+- **`parser` depends on nothing.** Number literals stay as strings in the AST,
+  so the parser does not even import apd.
+- **`arith` depends only on apd.** apd is the project's only third-party Go
+  dependency.
+- **`eval`** combines `parser` and `arith`. The percent rule and function lookup
+  belong to neither, so they live here.
+- **`api`** depends only on `eval`.
+- **`cmd/server`** wires `api` and `web` together.
+
+## API contract
+
+```
+POST /api/v1/calculate
+{ "expression": "2 * (3 + 4) ^ 2", "ans": "98" }        // "ans" is optional
+
+200 { "result": "98" }
+400 { "error": { "code": "syntax_error", "message": "unexpected ')'", "position": 7 } }
+422 { "error": { "code": "division_by_zero", "message": "division by zero", "position": 1 } }
+```
+
+- `position` is a 0-based character index into `expression`. It is left out
+  when it does not apply.
+- The lexer accepts ASCII only, so byte index, rune index and JavaScript string
+  index are the same. The frontend can highlight the offending character
+  directly.
+
+### Error catalog
+
+| Status | Code | When | `position` |
+|---|---|---|---|
+| 400 | `invalid_request` | Malformed JSON, missing `expression`, body too large | – |
+| 400 | `invalid_ans` | `ans` is not a valid decimal | – |
+| 400 | `expression_too_long` | Expression length limit exceeded | – |
+| 400 | `nesting_too_deep` | Parenthesis depth limit exceeded | ✓ |
+| 400 | `syntax_error` | Unexpected token, unclosed parenthesis, empty expression | ✓ |
+| 400 | `unknown_function` | `foo(1)` | ✓ |
+| 400 | `unknown_variable` | `x`, or `Ans` used without an `ans` value | ✓ |
+| 400 | `wrong_argument_count` | `sqrt(1, 2)` | ✓ |
+| 422 | `division_by_zero` | `1/0`, `0/0`, `0^-1` | ✓ (operator) |
+| 422 | `domain_error` | `sqrt(-1)`, `(-8)^(1/3)` | ✓ (function / operator) |
+| 422 | `overflow` | Result exceeds the exponent range | ✓ (operator) |
+| 422 | `underflow` | Result is too close to zero for the exponent range | ✓ (operator) |
+
+**Go side:**
+
+- Every error type has a `Code() string` method. Positional errors also have
+  `Pos() int`.
+- `api` knows only these interfaces, not the concrete types, and keeps one
+  code → status table.
+- A test walks every code and checks that it maps to 400 or 422. A new code
+  that is missing from the table breaks the test instead of falling through to
+  500.
+
+**Frontend side:**
+
+- An `ErrorCode` union type mirrors the catalog.
+- User messages come from a `Record<ErrorCode, string>`, so a missing message is
+  a compile error.
+- The UI shows its own text. The backend `message` is a fallback and a
+  debugging aid.
+
+## Parser and evaluator design
+
+### Precedence table
+
+Unary minus lives in the same table, so all binding powers are in one place.
+
+| Operator | Power | Associativity |
+|---|---|---|
+| `+ -` | 1 | left |
+| `* /` | 2 | left |
+| unary `-` | 3 | prefix |
+| `^` | 4 | right |
+| `%` | 5 | postfix |
+
+Unary minus parses its operand at power 3. The operand picks up `^` and `%` but
+stops at `*` and `+`. Results:
+
+- `-2^2 = -4`
+- `2^-1 = 0.5`
+- `2^3^2 = 512`
+- `2 * (3 + 4) ^ 2 = 98`
+
+### Grammar of primaries
+
+```
+primary := number
+         | identifier                        // variable: Ans (later pi, e)
+         | identifier "(" [ args ] ")"       // function call, any name
+         | "(" expression ")"                // kept as a Group node
+args    := expression { "," expression }
+number  := digit+ [ "." digit+ ] | "." digit+
+```
+
+### AST
+
+| Node | Fields |
+|---|---|
+| `Number` | `Text`, `Pos` |
+| `Variable` | `Name`, `Pos` |
+| `Call` | `Name`, `Args`, `Pos` |
+| `Unary` | `Op`, `X`, `Pos` |
+| `Binary` | `Op`, `L`, `R`, `Pos` |
+| `Percent` | `X`, `Pos` |
+| `Group` | `Inner`, `Pos` |
+
+- Every node carries the position of the token that created it.
+- `String()` prints a fully parenthesized S-expression, which keeps parser
+  tests readable. Example: `2 * (3 + 4) ^ 2` → `(* 2 (^ (group (+ 3 4)) 2))`.
+
+### Percent semantics
+
+Percent depends on context: the value of `10%` in `200 + 10%` depends on the
+left operand. The precedence table cannot express that.
+
+- **Parser:** `%` is the tightest-binding postfix operator. The parser only
+  produces a `Percent(x)` node.
+- **Evaluator:** the rule lives here.
+
+| Expression | Meaning | Example |
+|---|---|---|
+| `a + b%`, `a - b%` | a ± a·b/100 | `200 + 10%` = 220 |
+| `a * b%`, `a / b%` | b/100 | `200 * 10%` = 20 |
+| `b%` on its own | b/100 | `50%` = 0.5 |
+
+The rule fires when the right operand of `+`/`-` is a `Percent` node. Any
+number of unary minus signs in front of it still count. A `Group` node is a
+different node type, so parentheses block the rule without any special-casing.
+
+| Expression | Result | Why |
+|---|---|---|
+| `100 + 10%` | 110 | rule fires |
+| `100 + (10%)` | 100.1 | parentheses block the rule |
+| `100 + -10%` | 90 | unary minus does not block |
+| `100 - -10%` | 110 | unary minus does not block |
+| `100 + (-10%)` | 99.9 | parentheses block the rule |
+| `100 + (5+5)%` | 110 | the parentheses are inside the percent; rule fires |
+| `(100 + 10)%` | 1.1 | standalone percent |
+| `200 + 10% * 2` | 200.2 | right operand is `*`, not a percent |
+| `200 + 10% + 10%` | 242 | compounds, like a phone calculator |
+
+### Functions and variables
+
+- **Calls:** the parser turns any `identifier(args...)` into `Call{Name, Args, Pos}`
+  without checking the name.
+- **Lookup:** `eval` resolves names during evaluation against a registry in
+  `arith`, keyed by name and holding `{arity, fn}`.
+- **Adding a function** means one registry entry plus a test. The parser does
+  not change.
+- **Variables:** a bare identifier is a `Variable`. `eval` resolves it from a
+  variable table that holds `Ans` from the request. Constants such as `pi` can
+  be added later the same way.
+- Because nodes carry positions, `unknown_function` and `unknown_variable` are
+  still positional errors.
+
+### Why `Ans` is not substituted textually
+
+If `2*Ans` were sent as `2*(0.333…)`:
+
+- Error positions would point into the expanded text instead of what the user
+  sees.
+- Whatever format the backend outputs (for example `1E+40`) would also have to
+  be valid input to the grammar.
+
+Sending `ans` as its own field avoids both problems. The backend parses it with
+apd directly, so no grammar is involved.
+
+### Exactness and its limits
+
+- **Exact:** apd computes terminating decimals such as `0.1 + 0.2` exactly.
+- **Rounded to 34 digits:** `1/3` and `sqrt(2)`.
+- **Approximate:** non-integer powers, which apd computes through ln/exp.
+- **Example:** `1/3*3` is `0.999…9`. The display rounds it to `1`, while `Ans`
+  keeps the exact value. Phone calculators work the same way, and the README
+  documents this trade-off.
+- **Normalization:** `1.50 + 1.50` returns `"3"`, not `"3.00"` (`Reduce`), and
+  `-0` returns `"0"`.
+- **apd conditions:** `DivisionByZero`, `DivisionUndefined`, `InvalidOperation`,
+  `Overflow` and `Underflow` are translated to `MathError` kinds in a single
+  function.
+
+### Limits
+
+The endpoint is public, so every input is bounded. These are starting values,
+pinned by tests:
+
+| Limit | Value |
+|---|---|
+| Request body | `http.MaxBytesReader`, 4 KiB |
+| Expression length | 1000 characters |
+| Parenthesis nesting depth | 100 |
+| Number range | bounded exponent range in the apd context, so `10^10^10` fails fast with `overflow` |
+| Server timeouts | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` on `http.Server` |
+
+## Frontend design
+
+- **Single reducer.** The keypad and the keyboard dispatch the same actions, so
+  all logic sits in one pure reducer. State: `{ expression, ans, result, error, pending }`.
+- **After a result:**
+  - A digit starts a new expression.
+  - An operator continues from `Ans`, like a phone calculator.
+  - Backspace deletes `sqrt(` and `Ans` as whole tokens.
+- **Display matches the request.** The expression on screen must equal the
+  string sent to the backend character for character, or error positions drift.
+  - One-character visual swaps are fine (`*` → `×`, `/` → `÷`).
+  - Length-changing swaps are not (`√` ↔ `sqrt(`).
+- **Error highlighting.** Positional errors highlight the offending character.
+- **Display formatter.** `formatForDisplay(exact, maxChars)` rounds on the
+  decimal string itself and never calls `Number()`. `Number()` would lose
+  precision and overflow above 1e308.
+- **Stale responses.** The `useCalculator` hook performs the request and drops
+  any response that arrives after the expression has changed.
+- **Keyboard mapping.** A pure `keyToAction(event)` function and one `window`
+  listener.
+  - Events with Ctrl or Meta held are ignored, so Ctrl+C still works.
+  - `/` calls `preventDefault`, because Firefox otherwise opens quick find.
+  - Enter and `=` evaluate, Backspace deletes, Escape clears.
+- **API URL.** The client uses the relative URL `/api/v1/calculate`. In
+  development, the Vite proxy forwards `/api` to `localhost:8080`. In
+  production the request goes to the same origin. No CORS and no environment
+  configuration needed.
+
+## Coverage
+
+Coverage is a required deliverable. It is set up in step 0 and checked as part
+of every step's definition of done.
+
+### Backend
+
+```
+go test ./... -coverpkg=./... -coverprofile=coverage.out
+go tool cover -func=coverage.out                       # summary
+go tool cover -html=coverage.out -o coverage.html      # report
+```
+
+- With `-coverpkg=./...`, lines in one package that are exercised by another
+  package's tests also count. For example, `eval` tests cover `arith` code.
+- `main` stays thin and delegates to `run(ctx, args)`, so `cmd/server` is
+  testable too.
+
+### Frontend
+
+- `@vitest/coverage-v8` with `text` and `html` reporters.
+- Coverage includes `src/**` and excludes `main.tsx` and config files.
+- `coverage.thresholds` in the Vitest config fails `npm test` when coverage
+  drops below the target.
+
+### Targets
+
+| Area | Target |
+|---|---|
+| Backend `internal/*` | ≥ 90% (95%+ is realistic for `arith`, `parser`, `eval`) |
+| Frontend | ≥ 85% |
+
+### Deliverable
+
+- During development, reports go to gitignored locations:
+  `backend/coverage.out`, `backend/coverage.html` and `frontend/coverage/`.
+- The final snapshot is exported to the root `coverage/` directory and
+  committed:
+  - `coverage/backend/coverage.html`
+  - `coverage/backend/summary.txt`
+  - `coverage/frontend/`
+- The README contains a summary table.
+- The snapshot is reproducible on any OS with one command:
+  `docker build --target coverage --output type=local,dest=coverage .`
+
+## Docker
+
+One multi-stage Dockerfile produces one image that serves both the API and the
+frontend.
+
+| Stage | Base | Work |
+|---|---|---|
+| `frontend-build` | pinned Node LTS | `npm ci` → `npm run build` |
+| `backend-build` | Go version from `go.mod` | `go mod download` → copy `dist` into `internal/web/dist` → `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"` |
+| `coverage` (optional target) | previous stages | Runs both test suites with coverage, then copies only the reports into a `scratch` stage for `--output`. Optionally fails if Go coverage is below target |
+| `runtime` (default) | distroless static, `nonroot` | Binary only, runs as a non-root user, about 10–15 MB |
+
+**Things to watch:**
+
+- **`.dockerignore`** must list `node_modules`, `dist`, `coverage` and `.git`.
+  This matters on Windows: the host's `node_modules` contains Windows-native
+  esbuild/rollup binaries that break inside a Linux container.
+- **`//go:embed` cannot reach `../frontend/dist`.** The build copies `dist`
+  into the package directory. The package uses `all:dist` plus a committed
+  `.gitkeep`, so it still compiles when the frontend has not been built.
+- **Listen address.** The server listens on `:8080`, not `localhost:8080`.
+  Otherwise it is unreachable from outside the container.
+- **Routing.** The API lives under `/api/` in its own mux, and static files are
+  served at `/`. This avoids pattern conflicts and keeps
+  `GET /api/v1/calculate` returning 405.
+- **Line endings.** `.gitattributes` enforces LF, so files authored on Windows
+  do not break in Linux containers.
+
+## Implementation steps
+
+**Definition of done for every step:**
+
+- `go test ./...` and `npm test` pass.
+- Coverage of the new code has been checked.
+- `gofmt`/`go vet` and `tsc`/oxlint are clean.
+
+### Phase 0: Skeleton
+
+**0. Repository skeleton**
+
+- `git init`, `.gitignore`, and `.gitattributes` (LF line endings).
+- `backend/`: `go mod init`, then add `github.com/cockroachdb/apd/v3`. Use Go
+  1.22 or newer: its `ServeMux` supports method patterns such as
+  `"POST /api/v1/calculate"`, so no router library is needed.
+- `frontend/`: Vite `react-ts` template, plus Vitest, jsdom, React Testing
+  Library, user-event and `@vitest/coverage-v8`.
+- Coverage commands for both sides.
+- README with run, test and coverage commands.
+
+*Tests:* both test commands run and produce a coverage report, even with no
+tests yet.
+
+### Phase 1: Math (`internal/arith`)
+
+**1. Context, arithmetic, formatting, MathError**
+
+- A shared apd context: 34-digit precision and a bounded exponent range.
+- `Add`, `Sub`, `Mul`, `Div`.
+- One function that translates apd conditions into `MathError{Kind}`. Every
+  kind carries its error code: `division_by_zero`, `domain_error`, `overflow`,
+  `underflow`.
+- `Format`: normalization plus the plain/scientific threshold.
+
+*Tests:*
+
+- `0.1+0.2` → `"0.3"`
+- `1.50+1.50` → `"3"`
+- `-0` → `"0"`
+- `1/3` has 34 significant digits
+- `1/0` and `0/0` → `division_by_zero`
+- Plain/scientific boundary cases
+
+**2. Power, square root, percent helper, function registry**
+
+- Registry with `sqrt` only, for now.
+
+*Tests:*
+
+- `2^10`, and `2^-1 = 0.5`
+- `0^0 = 1`
+- `0^-1` → `division_by_zero`
+- `sqrt(-1)` and `(-8)^(1/3)` → `domain_error`
+- `10^1000000` → `overflow`, quickly
+
+### Phase 2: Parsing (`internal/parser`)
+
+**3. Lexer**
+
+- Tokens: number, `+ - * / ^ % ( ) ,`, identifier, EOF. Each token carries its
+  position.
+- Whitespace is skipped.
+- Only ASCII is accepted.
+
+*Tests:*
+
+- Positions are correct and whitespace is skipped.
+- `1.2.3` and `5.` are rejected; `.5` is accepted.
+- `2 $ 3` → `syntax_error` at position 2.
+- A non-ASCII character is rejected.
+
+**4. AST and precedence climbing**
+
+- Binary operators, unary minus, and parentheses as `Group` nodes.
+- Depth limit (`nesting_too_deep`).
+- S-expression `String()`.
+
+*Tests:*
+
+- The precedence and associativity table.
+- `-2^2` → `(- (^ 2 2))`.
+- `2^-1`.
+- `2 * (3 + 4) ^ 2` → `(* 2 (^ (group (+ 3 4)) 2))`.
+- Errors with their positions: `""`, `"2 +"`, `"(2"`, `"2)"`, `"2 3"`, `"* 2"`,
+  `"2(3)"`.
+
+**5. Postfix percent, function calls, variables**
+
+*Tests:*
+
+- AST shapes for `200+10%`, `100+(10%)`, `100+-10%` and `(5+5)%`.
+- `sqrt(9)` parses, and so does `foo(1, 2)`: the parser does not know function
+  names.
+- `sqrt(` → `syntax_error`.
+- `Ans` parses as a `Variable` node.
+
+### Phase 3: Evaluation (`internal/eval`)
+
+**6. Evaluator**
+
+- Walks the AST and calls `arith`.
+- Applies the percent rule, including unary-minus unwrapping and `Group`
+  blocking.
+- Looks up functions in the registry, with an arity check.
+- Resolves variables from the variable table.
+- Math errors carry the position of the operator or function that caused them.
+
+*Tests:*
+
+- An end-to-end table: `2 * (3 + 4) ^ 2 = 98`, plus the full percent table from
+  this plan.
+- `foo(1)` → `unknown_function` at position 0.
+- `x` → `unknown_variable`.
+- `sqrt(1,2)` → `wrong_argument_count`.
+- `1/(2-2)` → `division_by_zero` at the `/`.
+- `Ans*2` with `ans=21` → `42`.
+
+**7. Fuzz test** (built-in Go fuzzing)
+
+Invariants:
+
+- No input panics.
+- Positional errors always fall within `[0, len(input)]`.
+- For valid input, `parse(ast.String())` returns the same AST. This round trip
+  also checks that parentheses are preserved.
+
+### Phase 4: HTTP (`internal/api`, `cmd/server`)
+
+**8. Handler**
+
+- Decodes the request and applies the limits. This is where `invalid_request`,
+  `invalid_ans` and `expression_too_long` are produced.
+- Calls `eval`.
+- Maps errors to status codes through the `Code()`/`Pos()` interfaces and one
+  code → status table.
+
+*Tests (`httptest`):*
+
+- 200 success.
+- Each 400 code, with `position` where applicable.
+- Each 422 code.
+- Malformed JSON, invalid `ans`, oversized body.
+- `GET` → 405.
+- A test that walks every code and checks it maps to 400 or 422.
+
+**9. Server entry point**
+
+- `main` stays thin and calls `run(ctx, args)`.
+- Address from a flag or env var, defaulting to `:8080`.
+- `http.Server` timeouts, `slog` logging, graceful shutdown.
+- The API is mounted under `/api/` in its own mux.
+
+*Tests:* `run()` starts on a random port and serves one request. Plus a manual
+smoke test with `curl.exe`.
+
+### Phase 5: Frontend
+
+**10. API client**
+
+- `calculate(expression, ans?)` returns a discriminated union: `ok`, `error`
+  (with an `ErrorCode` and an optional position) and `network`.
+- `ErrorCode` union type and a `Record<ErrorCode, string>` message table.
+- Vite proxy for `/api`.
+
+*Tests:* mocked `fetch` for success, a positional 400, a 422 and a network
+failure.
+
+**11. Display formatter**
+
+- `formatForDisplay(exact, maxChars)` rounds on the string, without `Number()`.
+
+*Tests:*
+
+- `0.3333…` is truncated.
+- `9.9999…` carries over to `10`.
+- Very large and very small values switch to scientific notation.
+- Negatives.
+- Integers that fit are shown unchanged.
+- Backend output in scientific notation is accepted as input.
+
+**12. Calculator reducer**
+
+*Tests:*
+
+- Action sequences produce the expected state.
+- Backspace on `sqrt(` and `Ans` removes the whole token.
+- A digit after a result starts a new expression; an operator after a result
+  continues from `Ans`.
+- Clear works.
+- Input clears any error.
+
+**13. Display, Keypad and the `useCalculator` hook**
+
+- Stale responses are dropped.
+- Positional errors highlight the offending character.
+
+*Tests (React Testing Library):*
+
+- Clicking `2 + 3 =` against a mocked API shows `5`.
+- The error highlight appears at the right character.
+- The `Ans` key works.
+
+**14. Keyboard support**
+
+- A pure `keyToAction(event)` function and a `window` listener.
+
+*Tests:*
+
+- A `keyToAction` table, including the Ctrl/Meta passthrough.
+- Typing `2*3{Enter}` with user-event shows the result.
+
+**15. Polish**
+
+- Accessibility: `aria-live` on the result and labels on all buttons.
+- Responsive layout.
+- Loading state while a request is pending.
+
+### Phase 6: Packaging and delivery
+
+**16. Static file serving (`internal/web`)**
+
+- `//go:embed all:dist`, with a handler mounted at `/`.
+
+*Tests (`httptest`):*
+
+- `GET /` returns `index.html`.
+- `GET /api/v1/calculate` still returns 405.
+
+**17. Multi-stage Dockerfile and `.dockerignore`**
+
+*Tests:*
+
+- `docker build` succeeds.
+- `docker run -p 8080:8080` serves a working calculator end to end in the
+  browser.
+- The `coverage` target exports the reports.
+
+**18. Delivery**
+
+- Generate the coverage snapshot into `coverage/` and commit it.
+- Finish the README: setup, Docker usage, design decisions, error catalog,
+  coverage summary and known trade-offs.
+- Final check from a clean clone.
+
+## Known trade-offs (to document in the README)
+
+- **Inexact results.** Precision is finite: `1/3*3` evaluates to `0.999…9`, and
+  only display rounding shows `1`. Non-integer powers are approximate.
+- **Percent rule.** The rule applies only when the percent is the right operand
+  of `+`/`-` (possibly negated). For example, `200 + 10% * 2` is `200.2`.
+- **Limits.** Body size, expression length and nesting depth are capped, so
+  very long or very deeply nested inputs are rejected.
+
+## Out of scope
+
+- Implicit multiplication.
+- Modulo.
+- Scientific notation in input.
+- Calculation history.
+- Functions beyond `sqrt`. The registry makes them a small addition.
