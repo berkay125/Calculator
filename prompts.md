@@ -245,3 +245,17 @@ pow returns wrong errors for huge exponents they returns underflow but it should
   code with its position. Coverage stays at 100%.
 - Each rule was broken once to confirm a test fails without it.
 - PLAN.md step 6 records the decisions made while implementing.
+
+## 13. `ans` errors are always 400
+
+```text
+for step 8: any error from ParseValue for the ans field must be invalid_ans (400), even when it's an overflow or underflow, and add a test for ans "1E+7000"
+```
+
+**Changes:** PLAN.md only; the handler is written in step 8.
+
+- Step 8: every `ParseValue` error is `invalid_ans`. The handler maps it
+  itself, because the error behind `ans = "1E+7000"` has the code `overflow`,
+  which the code → status table would turn into a 422.
+- Step 8 tests: `ans` = `"1E+7000"` and `"1E-7000"` → 400 `invalid_ans`.
+- The error catalog says that an out-of-range `ans` is `invalid_ans`.

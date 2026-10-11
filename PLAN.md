@@ -104,7 +104,7 @@ POST /api/v1/calculate
 | Status | Code | When | `position` |
 |---|---|---|---|
 | 400 | `invalid_request` | Malformed JSON, missing `expression`, body too large | – |
-| 400 | `invalid_ans` | `ans` is not a valid decimal | – |
+| 400 | `invalid_ans` | `ans` is not a valid decimal, or is outside the exponent range (`1E+7000`) | – |
 | 400 | `expression_too_long` | Expression length limit exceeded | – |
 | 400 | `nesting_too_deep` | Parenthesis depth limit exceeded | ✓ |
 | 400 | `syntax_error` | Unexpected token, unclosed parenthesis, empty expression | ✓ |
@@ -663,8 +663,12 @@ Invariants:
 **8. Handler**
 
 - Decodes the request and applies the limits. This is where `invalid_request`,
-  `invalid_ans` and `expression_too_long` are produced. `ans` goes through
-  `eval.ParseValue`, and any error there is `invalid_ans`.
+  `invalid_ans` and `expression_too_long` are produced.
+- `ans` goes through `eval.ParseValue`. Any error from it is `invalid_ans`
+  (400), including overflow and underflow: a bad `ans` is invalid input, not
+  undefined math. The handler maps this error itself and does not pass it to
+  the code → status table. `ParseValue("1E+7000")` returns an error whose
+  `Code()` is `overflow`, which the table would turn into a 422.
 - Calls `eval`.
 - Maps errors to status codes through the `Code()`/`Pos()` interfaces and one
   code → status table.
@@ -675,6 +679,8 @@ Invariants:
 - Each 400 code, with `position` where applicable.
 - Each 422 code.
 - Malformed JSON, invalid `ans`, oversized body.
+- `ans` = `"1E+7000"` → 400 `invalid_ans`, not 422 `overflow`. The same for
+  `"1E-7000"` and `underflow`.
 - `GET` → 405.
 - A test that walks every code and checks it maps to 400 or 422.
 
