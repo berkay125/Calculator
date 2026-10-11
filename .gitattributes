@@ -1,0 +1,3 @@
+# Normalize line endings to LF in the repository and the working tree, so files
+# authored on Windows behave the same inside Linux containers.
+* text=auto eol=lf

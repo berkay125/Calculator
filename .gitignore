@@ -1,0 +1,12 @@
+# Go build and coverage output
+# (the committed coverage snapshot lives in /coverage)
+backend/bin/
+backend/coverage.out
+backend/coverage.html
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
