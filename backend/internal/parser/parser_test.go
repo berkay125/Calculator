@@ -103,28 +103,28 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// withPositions prints n like String, with every node tagged by its position.
+// withPositions prints n like String, with every node tagged by its Position.
 func withPositions(t *testing.T, n Node) string {
 	t.Helper()
 	switch n := n.(type) {
 	case *Number:
-		return fmt.Sprintf("%s@%d", n.Text, n.Pos)
+		return fmt.Sprintf("%s@%d", n.Text, n.Position())
 	case *Variable:
-		return fmt.Sprintf("%s@%d", n.Name, n.Pos)
+		return fmt.Sprintf("%s@%d", n.Name, n.Position())
 	case *Call:
-		s := fmt.Sprintf("(call %s@%d", n.Name, n.Pos)
+		s := fmt.Sprintf("(call %s@%d", n.Name, n.Position())
 		for _, arg := range n.Args {
 			s += " " + withPositions(t, arg)
 		}
 		return s + ")"
 	case *Percent:
-		return fmt.Sprintf("(%%@%d %s)", n.Pos, withPositions(t, n.X))
+		return fmt.Sprintf("(%%@%d %s)", n.Position(), withPositions(t, n.X))
 	case *Unary:
-		return fmt.Sprintf("(%s@%d %s)", n.Op, n.Pos, withPositions(t, n.X))
+		return fmt.Sprintf("(%s@%d %s)", n.Op, n.Position(), withPositions(t, n.X))
 	case *Binary:
-		return fmt.Sprintf("(%s@%d %s %s)", n.Op, n.Pos, withPositions(t, n.L), withPositions(t, n.R))
+		return fmt.Sprintf("(%s@%d %s %s)", n.Op, n.Position(), withPositions(t, n.L), withPositions(t, n.R))
 	case *Group:
-		return fmt.Sprintf("(group@%d %s)", n.Pos, withPositions(t, n.Inner))
+		return fmt.Sprintf("(group@%d %s)", n.Position(), withPositions(t, n.Inner))
 	}
 	t.Fatalf("unknown node type %T", n)
 	return ""

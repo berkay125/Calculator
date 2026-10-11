@@ -301,7 +301,7 @@ pinned by tests:
     request is already pending. After an error it sends the same expression
     again, which retries a network failure.
   - Clear resets the expression, result, error and pending request, and keeps
-  - Clear resets the expression, result and error, and keeps `Ans`.
+    `Ans`.
 - **After a result:**
   - `+ - * / ^ %` continue from `Ans`, like a phone calculator: `+` gives
     `Ans+`.
@@ -605,10 +605,33 @@ tests yet.
 - Applies the percent rule, including unary-minus unwrapping and `Group`
   blocking.
 - Looks up functions in the registry, with an arity check.
-- Resolves variables from the variable table.
+- Resolves variables from the variable table. Names are case-sensitive: `ans`
+  is not `Ans`.
 - Rounds the final value to 34 digits, so an expression with no operation
   (a long literal, `Ans`, `-x`, `(x)`) also returns at most 34 digits.
 - Math errors carry the position of the operator or function that caused them.
+- API: `Evaluate(expression, vars)` returns a `Value`. `ParseValue` parses an
+  `ans` string, and `Value.String()` formats a result. The `api` package uses
+  only these, so it depends on `eval` alone.
+
+Settled while implementing:
+
+- **Names before math.** A first pass checks every name and argument count
+  before anything is computed. An invalid expression always gets a 400, even
+  when evaluating it would also divide by zero: `1/0 + x` → `unknown_variable`.
+  Otherwise operands are evaluated left to right, and the first error wins.
+- **Percent errors.** In `a ± b%`, a failure while computing b percent of a
+  points at the `%`, and a failure of the `±` points at the operator.
+- **Final rounding.** Rounding up can overflow (an `ans` of forty 9s at the top
+  of the exponent range). The error points at the root of the expression.
+- **Literals out of range.** `arith.Parse` now reports `overflow` or
+  `underflow` instead of `invalid number`, so a literal with thousands of
+  digits fails at its own position. apd drops the condition flags when a
+  trapped parse fails, so `Parse` runs without traps and checks the flags
+  itself.
+- **Exact negation.** Unary minus uses `arith.Neg`, which does not round.
+- **Node positions.** `parser.Node` gains `Position()`, which gives the root's
+  position for the final-rounding error.
 
 *Tests:*
 

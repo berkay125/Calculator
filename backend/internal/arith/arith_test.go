@@ -2,6 +2,7 @@ package arith
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cockroachdb/apd/v3"
@@ -31,6 +32,10 @@ func TestParse(t *testing.T) {
 		// Input is never rounded, even beyond Precision digits.
 		{"0.12345678901234567890123456789012345", "0.12345678901234567890123456789012345"},
 		{"123456789012345678901234567890123456789", "1.23456789012345678901234567890123456789E+38"},
+		// The edges of the exponent range.
+		{"9.999999999999999999999999999999999E+6144", "9.999999999999999999999999999999999E+6144"},
+		{"1E-6143", "1E-6143"},
+		{"0E-7000", "0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -42,11 +47,36 @@ func TestParse(t *testing.T) {
 }
 
 func TestParseRejects(t *testing.T) {
-	for _, in := range []string{"", " 1", "abc", "1.2.3", "1e", "NaN", "sNaN", "Infinity", "-inf", "1E+7000", "1E-7000"} {
+	for _, in := range []string{"", " 1", "abc", "1.2.3", "1e", "NaN", "sNaN", "Infinity", "-inf"} {
 		t.Run(in, func(t *testing.T) {
 			d, err := Parse(in)
 			if !errors.Is(err, ErrInvalidNumber) {
 				t.Errorf("Parse(%q) = %v, %v; want ErrInvalidNumber", in, d, err)
+			}
+		})
+	}
+}
+
+func TestParseOutOfRange(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want Kind
+	}{
+		{"large exponent", "1E+7000", Overflow},
+		{"negative with large exponent", "-1E+7000", Overflow},
+		{"just above the range", "1E+6145", Overflow},
+		{"long integer", "1" + strings.Repeat("0", 6145), Overflow},
+		{"small exponent", "1E-7000", Underflow},
+		{"just below the range", "1E-6144", Underflow},
+		{"long fraction", "0." + strings.Repeat("0", 6150) + "1", Underflow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := Parse(tt.in)
+			var mathErr *MathError
+			if !errors.As(err, &mathErr) || mathErr.Kind != tt.want {
+				t.Errorf("Parse = %v, %v; want MathError with kind %s", d, err, tt.want.Code())
 			}
 		})
 	}
@@ -163,6 +193,10 @@ func TestUnaryOperations(t *testing.T) {
 		{"percent", Percent, "10", "0.1"},
 		{"percent with fraction", Percent, "12.5", "0.125"},
 		{"negative percent", Percent, "-5", "-0.05"},
+		{"round keeps short values", Round, "12.5", "12.5"},
+		{"round ties to even (down)", Round, "0.12345678901234567890123456789012345", "0.1234567890123456789012345678901234"},
+		{"round ties to even (up)", Round, "0.12345678901234567890123456789012355", "0.1234567890123456789012345678901236"},
+		{"round long integer", Round, "1234567890123456789012345678901234567890", "1.234567890123456789012345678901235E+39"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -177,10 +211,46 @@ func TestUnaryOperations(t *testing.T) {
 	}
 }
 
-func TestSqrtOfNegative(t *testing.T) {
-	got, err := Sqrt(mustParse(t, "-1"))
-	var mathErr *MathError
-	if !errors.As(err, &mathErr) || mathErr.Kind != DomainError {
-		t.Errorf("Sqrt(-1) = %v, %v; want MathError with kind domain_error", got, err)
+func TestUnaryOperationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		op   func(x *apd.Decimal) (*apd.Decimal, error)
+		x    string
+		want Kind
+	}{
+		{"sqrt of negative", Sqrt, "-1", DomainError},
+		{"round up past the exponent range", Round, "9.999999999999999999999999999999999999999E+6144", Overflow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.op(mustParse(t, tt.x))
+			var mathErr *MathError
+			if !errors.As(err, &mathErr) || mathErr.Kind != tt.want {
+				t.Errorf("got %v, %v; want MathError with kind %s", got, err, tt.want.Code())
+			}
+		})
+	}
+}
+
+func TestNeg(t *testing.T) {
+	tests := []struct {
+		x, want string
+	}{
+		{"5", "-5"},
+		{"-2.5", "2.5"},
+		// Negation is exact: it does not round to Precision digits.
+		{"123456789012345678901234567890123456789", "-1.23456789012345678901234567890123456789E+38"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.x, func(t *testing.T) {
+			if got := Format(Neg(mustParse(t, tt.x))); got != tt.want {
+				t.Errorf("Neg(%s) = %s, want %s", tt.x, got, tt.want)
+			}
+		})
+	}
+	for _, x := range []string{"0", "-0"} {
+		if got := Neg(mustParse(t, x)); got.Negative {
+			t.Errorf("Neg(%s) = %s, want positive zero", x, got)
+		}
 	}
 }

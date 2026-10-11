@@ -6,10 +6,13 @@ import (
 )
 
 // Node is an expression in the syntax tree: a *Number, *Variable, *Call,
-// *Unary, *Binary, *Percent or *Group. Every node records the position of the
-// token that created it. String prints the subtree as a fully parenthesized
-// S-expression, such as (* 2 (^ (group (+ 3 4)) 2)).
+// *Unary, *Binary, *Percent or *Group.
 type Node interface {
+	// Position returns the index in the input of the token that created the
+	// node, which is also its Pos field.
+	Position() int
+	// String prints the subtree as a fully parenthesized S-expression, such
+	// as (* 2 (^ (group (+ 3 4)) 2)).
 	String() string
 }
 
@@ -62,6 +65,14 @@ type Group struct {
 	Inner Node
 	Pos   int // position of "("
 }
+
+func (n *Number) Position() int   { return n.Pos }
+func (n *Variable) Position() int { return n.Pos }
+func (n *Call) Position() int     { return n.Pos }
+func (n *Unary) Position() int    { return n.Pos }
+func (n *Binary) Position() int   { return n.Pos }
+func (n *Percent) Position() int  { return n.Pos }
+func (n *Group) Position() int    { return n.Pos }
 
 func (n *Number) String() string {
 	return n.Text

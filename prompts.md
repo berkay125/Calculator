@@ -224,3 +224,24 @@ pow returns wrong errors for huge exponents they returns underflow but it should
 - Each new rule (the power of `%`, call parsing, call depth, the `call` tag in
   `String()`) was broken once to confirm a test fails without it.
 - PLAN.md step 5 records these rules.
+
+## 12. Step 6 (summarized)
+
+- Asked to continue with step 6.
+
+**Changes:**
+
+- `eval` package:
+  - `Evaluate(expression, vars)`, `ParseValue` and `Value`, so the HTTP layer
+    depends on `eval` alone
+  - the percent rule, with unary-minus unwrapping and `Group` blocking
+  - a first pass that checks names and argument counts before anything is
+    computed, so an invalid expression always gets a 400
+  - math errors at the operator or function that failed
+- `arith` gains exact negation (`Neg`) and `Round`, and `Parse` now tells
+  overflow from underflow for numbers outside the exponent range.
+- `parser.Node` gains `Position()`.
+- End-to-end tests with the full percent table from PLAN.md, and every error
+  code with its position. Coverage stays at 100%.
+- Each rule was broken once to confirm a test fails without it.
+- PLAN.md step 6 records the decisions made while implementing.

@@ -31,18 +31,47 @@ var ctx = &apd.Context{
 // parseCtx keeps every digit of its input (precision 0 disables rounding) but
 // still enforces the exponent range. Rounding inputs before an operation would
 // make results depend on digits that were already thrown away.
-var parseCtx = ctx.WithPrecision(0)
+//
+// It sets no traps: when a trapped parse fails, apd drops the condition flags,
+// and Parse needs them to tell overflow from underflow.
+var parseCtx = &apd.Context{
+	MaxExponent: maxExponent,
+	MinExponent: minExponent,
+	Rounding:    apd.RoundHalfEven,
+}
 
 // ErrInvalidNumber is returned by Parse for strings that are not finite
-// decimal numbers within the exponent range.
+// decimal numbers.
 var ErrInvalidNumber = errors.New("invalid number")
 
 // Parse converts a decimal string such as "12.5", "-3" or "1.5E+40" into a
-// Decimal. All digits are kept; only operation results are rounded.
+// Decimal. All digits are kept; only operation results are rounded. A
+// malformed string returns ErrInvalidNumber, and a number outside the exponent
+// range returns a MathError of kind Overflow or Underflow.
 func Parse(s string) (*apd.Decimal, error) {
-	d, _, err := parseCtx.NewFromString(s)
+	d, cond, err := parseCtx.NewFromString(s)
+	if err == nil && cond&(apd.Overflow|apd.Underflow|apd.Subnormal) != 0 {
+		return nil, fromCondition(cond, nil)
+	}
 	if err != nil || d.Form != apd.Finite {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidNumber, s)
+	}
+	return d, nil
+}
+
+// Neg returns -x. Negation is exact, so unlike the other operations it does
+// not round, and it never returns negative zero.
+func Neg(x *apd.Decimal) *apd.Decimal {
+	return new(apd.Decimal).Neg(x)
+}
+
+// Round rounds x to Precision significant digits, ties to even. Operation
+// results are already rounded; Round is for values that skipped every
+// operation, such as a long literal. Rounding up can overflow.
+func Round(x *apd.Decimal) (*apd.Decimal, error) {
+	d := new(apd.Decimal)
+	if cond, err := ctx.Round(d, x); err != nil {
+		return nil, fromCondition(cond, err)
 	}
 	return d, nil
 }
