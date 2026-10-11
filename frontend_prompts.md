@@ -103,3 +103,41 @@ for syntax errors backend show the backend response since it is more specific ot
 - One row in the PLAN.md table had a miscounted expected value
   (`0.03333333333` instead of `0.033333333333`). The test caught it, and the
   table was corrected.
+
+## 6. Step 12 (summarized)
+
+- Approved step 11 and asked to start step 12.
+
+**Changes:**
+
+- `src/calculator/reducer.ts`: one pure reducer for the keypad and the
+  keyboard, with `input`, `backspace`, `clear`, `evaluate` and `response`
+  actions. Request ids come from a counter in the state. A response whose id
+  does not match the pending request is dropped.
+- Behavior from PLAN.md: whole-token Backspace for `sqrt(` and `Ans`; keys
+  that would merge with `Ans` are ignored; after a result, operators continue
+  from `Ans`; `ans` starts at `0` and survives Clear.
+- `=` after an error sends the expression again, so a network failure can be
+  retried. PLAN.md updated.
+- Table-driven tests, 100% coverage. Four rules were broken one at a time to
+  confirm a test fails for each: the stale-response check, the `Ans` merge
+  rule, whole-token Backspace, and cancelling the pending request on input.
+
+## 7. Casio-style repeated `=`
+
+```text
+aggree with 3 decisions. yes do it like Casio style (repeated =)
+```
+
+The three decisions: request ids from a counter in the state, the failed
+client result stored as the error, and `=` after an error as a retry. The
+question was whether `=` after a result should run an expression with `Ans`
+again, so `Ans*2+1` steps through a recurrence.
+
+**Changes:**
+
+- After a result, `=` runs the expression again with the new `Ans` if the
+  expression uses `Ans`. Without `Ans` it still does nothing.
+- The old result stays on screen while the repeat is pending. Backspace
+  cancels the repeat, and a failed repeat replaces the result with the error.
+- Tests for each rule, each confirmed to fail without it. PLAN.md updated.

@@ -249,6 +249,9 @@ apd directly, so no grammar is involved.
   operation rounds only its result (ties to even), and the evaluator rounds the
   final value. Rounding inputs first would make results depend on digits that
   were already discarded.
+- **Negation is exact:** unary minus does not round, so
+  `-12345678901234567890123456789012345 + 12345678901234567890123456789012344`
+  is exactly `-1`.
 - **Rounded to 34 digits:** `1/3` and `sqrt(2)`.
 - **Approximate:** non-integer powers, which apd computes through ln/exp.
 - **Example:** `1/3*3` is `0.999…9`. The display rounds it to `1`, while `Ans`
@@ -276,11 +279,15 @@ pinned by tests:
 ## Frontend design
 
 - **Single reducer.** The keypad and the keyboard dispatch the same actions, so
-  all logic sits in one pure reducer. State: `{ expression, ans, result, error, pending }`.
+  all logic sits in one pure reducer. State:
+  `{ expression, ans, result, error, pending, lastRequestId }`.
   - `ans` starts at `"0"`, as on scientific calculators, so `Ans` works from
     the first calculation (for example, recurrences such as `Ans*2+1`). It is
     sent with every request.
-  - `pending` is the request in flight: `{ id, expression, ans }`.
+  - `error` is the failed client result (`error`, `unexpected` or `network`).
+    The display turns it into text.
+  - `pending` is the request in flight: `{ id, expression, ans }`. Ids come
+    from the `lastRequestId` counter, so the reducer stays pure.
 - **Permissive input.** The reducer does not duplicate the grammar. The backend
   checks the syntax, and the error highlight shows where the problem is.
   - One exception: right after `Ans`, a digit, `(`, `Ans` or `sqrt(` is
@@ -291,7 +298,9 @@ pinned by tests:
   - Backspace deletes `sqrt(` and `Ans` as whole tokens.
   - Any edit clears the error and cancels a pending request.
   - `=` sends the request. It does nothing when the expression is empty or a
-    request is already pending.
+    request is already pending. After an error it sends the same expression
+    again, which retries a network failure.
+  - Clear resets the expression, result, error and pending request, and keeps
   - Clear resets the expression, result and error, and keeps `Ans`.
 - **After a result:**
   - `+ - * / ^ %` continue from `Ans`, like a phone calculator: `+` gives
@@ -299,8 +308,12 @@ pinned by tests:
   - Every other input key (digit, `.`, `(`, `)`, `sqrt(`, `Ans`) starts a new
     expression.
   - Backspace hides the result and returns to editing the same expression. It
-    does not delete a character.
-  - `=` does nothing. The last operation is not repeated.
+    does not delete a character, and it cancels a repeat that is pending.
+  - `=` runs the expression again if it uses `Ans`, as on a Casio: with
+    `Ans*2+1`, each press gives the next value (1, 3, 7, …). The old result
+    stays on screen until the new one arrives, and a failed repeat replaces it
+    with the error. Without `Ans`, `=` does nothing. The last operation is
+    never repeated phone-style (`+5`, `=`, `=`).
 - **Keypad.** Digits, `. + - * / ^ % ( )`, `√` (inserts `sqrt(`), `Ans`
   (inserts `Ans`, the variable name the backend expects), `=`, Backspace and
   Clear.
@@ -627,7 +640,8 @@ Invariants:
 **8. Handler**
 
 - Decodes the request and applies the limits. This is where `invalid_request`,
-  `invalid_ans` and `expression_too_long` are produced.
+  `invalid_ans` and `expression_too_long` are produced. `ans` goes through
+  `eval.ParseValue`, and any error there is `invalid_ans`.
 - Calls `eval`.
 - Maps errors to status codes through the `Code()`/`Pos()` interfaces and one
   code → status table.
@@ -714,7 +728,10 @@ generated values are checked against the width and notation rules.
 - Action sequences produce the expected state.
 - Backspace on `sqrt(` and `Ans` removes the whole token.
 - After a result: operators continue from `Ans`, other keys start a new
-  expression, Backspace returns to editing, and `=` does nothing.
+  expression, and Backspace returns to editing.
+- Repeated `=`: an expression with `Ans` runs again with the new `Ans`, one
+  without `Ans` does nothing, Backspace cancels a pending repeat, and a failed
+  repeat replaces the result with the error.
 - A digit, `(`, `Ans` or `sqrt(` right after `Ans` is ignored.
 - `ans` starts at `"0"`, and Clear keeps it.
 - `=` does nothing on an empty expression or while a request is pending.
