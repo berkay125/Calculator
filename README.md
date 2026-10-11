@@ -30,6 +30,13 @@ go vet ./...
 go test ./...
 ```
 
+`go test` also runs the fuzz seeds. To search for new failing inputs:
+
+```sh
+go test ./internal/parser -fuzz=FuzzParse -fuzztime=1m
+go test ./internal/eval -fuzz=FuzzEvaluate -fuzztime=1m
+```
+
 ## Frontend
 
 Run these from `frontend/`:

@@ -111,12 +111,58 @@ func Pow(x, y *apd.Decimal) (*apd.Decimal, error) {
 			return nil, &MathError{Kind: DivisionByZero}
 		}
 	}
-	d, err := apply(ctx.Pow, x, y)
+	d, err := pow(x, y)
 	var mathErr *MathError
 	if errors.As(err, &mathErr) && (mathErr.Kind == Overflow || mathErr.Kind == Underflow) {
 		mathErr.Kind = powRangeKind(x, y)
 	}
 	return d, err
+}
+
+// powCtx computes the two parts of a split power (see pow). It has ten guard
+// digits and apd's full exponent range, so the parts are rounded and checked
+// against the exponent range only once more, in their product.
+var powCtx = &apd.Context{
+	Precision:   Precision + 10,
+	MaxExponent: apd.MaxExponent,
+	MinExponent: apd.MinExponent,
+	Traps:       apd.DefaultTraps,
+	Rounding:    apd.RoundHalfEven,
+}
+
+// pow computes x^y. For a non-integer y, apd computes ln and exp at a
+// precision above the number of digits in x. With a long base, such as a
+// base of thousands of digits, that takes half a second, and from about 2700
+// digits apd gives up with an error that has no condition. A base with more
+// digits than powCtx keeps is therefore split: x^y = x^int(y) * x^frac(y).
+//   - The integer power multiplies with every digit of x.
+//   - The fractional power uses x rounded to powCtx precision. Since
+//     |frac(y)| < 1, its relative error is below that of the rounded x.
+//
+// Both parts lie on the same side of 1, and x^y is further from 1 than either
+// of them. A part that leaves apd's exponent range therefore means that x^y
+// leaves the narrower range of ctx too.
+func pow(x, y *apd.Decimal) (*apd.Decimal, error) {
+	var integ, frac apd.Decimal
+	y.Modf(&integ, &frac)
+	if frac.IsZero() || x.NumDigits() <= int64(powCtx.Precision) {
+		return apply(ctx.Pow, x, y)
+	}
+	// Rounding cannot fail: x lies within the exponent range of ctx, far
+	// inside that of powCtx.
+	var short apd.Decimal
+	powCtx.Round(&short, x)
+	// The fractional part goes first, so a negative base is a DomainError
+	// even when the integer part alone would overflow.
+	fracPow, err := apply(powCtx.Pow, &short, &frac)
+	if err != nil {
+		return nil, err
+	}
+	intPow, err := apply(powCtx.Pow, x, &integ)
+	if err != nil {
+		return nil, err
+	}
+	return Mul(intPow, fracPow)
 }
 
 var one = apd.New(1, 0)

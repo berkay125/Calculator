@@ -118,6 +118,10 @@ func TestOperations(t *testing.T) {
 		{"pow fractional exponent, irrational result", Pow, "2", "0.5", "1.414213562373095048801688724209698"},
 		{"pow huge exponent of one", Pow, "1", "1E+100", "1"},
 		{"pow huge even exponent of minus one", Pow, "-1", "1E+100", "1"},
+		// A base with thousands of digits takes the split path.
+		{"pow long base, fractional exponent", Pow, "4." + strings.Repeat("0", 3000), "0.5", "2"},
+		{"pow long base, integer and fractional parts", Pow, "9." + strings.Repeat("0", 3000), "1.5", "27"},
+		{"pow long base keeps every digit for the integer part", Pow, "1." + strings.Repeat("0", 99) + "1", "1" + strings.Repeat("0", 100) + ".5", "2.718281828459045235360287471352662"},
 		{"percent of", PercentOf, "200", "10", "20"},
 		{"percent of with fraction", PercentOf, "50", "12.5", "6.25"},
 		{"negative percent of", PercentOf, "200", "-10", "-20"},
@@ -162,6 +166,11 @@ func TestOperationErrors(t *testing.T) {
 		{"pow overflow with a negative small base", Pow, "-0.5", "-1E+100", Overflow},
 		{"pow overflow past the range with a negative exponent", Pow, "0.1", "-7000", Overflow},
 		{"pow underflow past the range with a negative exponent", Pow, "10", "-7000", Underflow},
+		{"pow long base, overflow", Pow, "1" + strings.Repeat("0", 3000), "2.5", Overflow},
+		{"pow long base, underflow", Pow, "1" + strings.Repeat("0", 3000), "-2.5", Underflow},
+		{"pow long small base, overflow with a negative exponent", Pow, "0." + strings.Repeat("3", 100), "-20000.5", Overflow},
+		// The integer part alone would leave apd's exponent range.
+		{"pow long negative base, fractional exponent", Pow, "-1" + strings.Repeat("0", 3000), "40.5", DomainError},
 		{"percent of overflow", PercentOf, "1E+6144", "1E+6144", Overflow},
 	}
 	for _, tt := range tests {
@@ -175,6 +184,37 @@ func TestOperationErrors(t *testing.T) {
 				t.Errorf("got kind %s, want %s", mathErr.Code(), tt.want.Code())
 			}
 		})
+	}
+}
+
+// Where apd's own Pow still works for a long base, the split path gives the
+// same result.
+func TestPowSplitMatchesApd(t *testing.T) {
+	for _, x := range []string{
+		"1." + strings.Repeat("7", 100),
+		"0.0" + strings.Repeat("3", 300),
+		strings.Repeat("9", 300),
+		"1." + strings.Repeat("0", 298) + "1",
+	} {
+		for _, y := range []string{"0.5", "-1.5", "-0.1234567890123456789", "1000.5", "12345678901234567890.5"} {
+			t.Run(x[:6]+"^"+y, func(t *testing.T) {
+				dx, dy := mustParse(t, x), mustParse(t, y)
+				want, wantErr := apply(ctx.Pow, dx, dy)
+				got, err := Pow(dx, dy)
+				if wantErr != nil || err != nil {
+					// Both must fail. The kinds may differ, because Pow
+					// corrects the kind of an out-of-range power.
+					var wantMath, gotMath *MathError
+					if !errors.As(wantErr, &wantMath) || !errors.As(err, &gotMath) {
+						t.Fatalf("Pow = %v, %v; apd = %v, %v", got, err, want, wantErr)
+					}
+					return
+				}
+				if Format(got) != Format(want) {
+					t.Errorf("Pow = %s, apd = %s", Format(got), Format(want))
+				}
+			})
+		}
 	}
 }
 

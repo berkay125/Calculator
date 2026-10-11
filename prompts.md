@@ -259,3 +259,25 @@ for step 8: any error from ParseValue for the ans field must be invalid_ans (400
   which the code → status table would turn into a 422.
 - Step 8 tests: `ans` = `"1E+7000"` and `"1E-7000"` → 400 `invalid_ans`.
 - The error catalog says that an out-of-range `ans` is `invalid_ans`.
+
+## 14. Step 7 (summarized)
+
+- Asked to continue with step 7.
+
+**Changes:**
+
+- `FuzzParse` (parser): no panics, error codes and positions in range, node
+  positions point at their tokens, the tree follows the precedence table, and
+  `Parse(infix(ast))` rebuilds the same tree.
+- `FuzzEvaluate` (eval, with a fuzzed `ans`): no panics, every error has a
+  catalog code and a position in range, and results have at most 34 digits and
+  parse back as `ans`.
+- Six injected parser bugs (associativity, dropped groups, positions, the power
+  of unary minus) each fail the fuzz seeds.
+- Bug found while fuzzing: a non-integer power of a base with thousands of
+  digits (a crafted `ans`) failed with an error that had no code, and was slow
+  well before that. `arith.Pow` now splits such a power into integer and
+  fractional parts. Results for bases of up to 44 digits are unchanged, and a
+  test checks that the split path matches apd where apd still works.
+- PLAN.md step 7 records the invariants and the fix. The README lists the fuzz
+  commands.
