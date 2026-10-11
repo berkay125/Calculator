@@ -382,7 +382,9 @@ Why these thresholds:
   notation shows more.
 - A width of 14 fits 12 significant digits after `0.`, so `1/3` shows all 12.
 - The range is checked on the rounded value, so a carry can move a value
-  across a boundary: `999999999999.9` becomes `1E+12`.
+  across a boundary: `999999999999.9` becomes `1E+12`. The number of digits
+  comes from the exact value. After a carry only the digit 1 is left, which
+  fits either notation.
 
 ## Coverage
 
@@ -686,7 +688,7 @@ that is not JSON, an unknown code and a network failure.
 |---|---|---|---|
 | `123456789012` | `123456789012` | no | 12 digits fit |
 | `0.3333333333333333333333333333333333` | `0.333333333333` | yes | 12 digits after `0.` |
-| `0.03333333333333333333333333333333333` | `0.03333333333` | yes | only 11 digits fit |
+| `0.03333333333333333333333333333333333` | `0.033333333333` | yes | only 11 digits fit |
 | `0.1234567890125` | `0.123456789012` | yes | tie, rounds to even |
 | `0.1234567890135` | `0.123456789014` | yes | tie, rounds to even |
 | `9.9999999999999` | `10` | yes | carry, trailing zeros stripped |
@@ -700,6 +702,10 @@ that is not JSON, an unknown code and a network failure.
 | `-0.3333333333333333333333333333333333` | `-0.333333333333` | yes | minus sign not counted |
 | `1.5E-20` | `1.5E-20` | no | backend scientific input |
 | `1E+6144` | `1E+6144` | no | largest exponent |
+
+Plus cases for zero, the range bounds, ties in scientific notation, and long
+exponents that leave fewer digits for the mantissa (`1.234568E+6144`). 2000
+generated values are checked against the width and notation rules.
 
 **12. Calculator reducer**
 

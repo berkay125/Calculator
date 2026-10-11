@@ -85,3 +85,21 @@ for syntax errors backend show the backend response since it is more specific ot
   the frontend's own message for every other code. An empty backend message
   falls back to `Syntax error`.
 - Tests for both paths. PLAN.md updated to match.
+
+## 5. Step 11 (summarized)
+
+- Approved the error messages and asked to start step 11.
+
+**Changes:**
+
+- `src/calculator/format.ts`: `formatForDisplay(exact)` returns
+  `{ text, rounded }`. It works on the decimal string only, never `Number()`.
+  It rounds once to the digits that fit, ties to even, and picks plain or
+  scientific notation from the rounded value.
+- Tests: the PLAN.md table plus edge cases, and 2000 generated values checked
+  against the width and notation rules. 100% coverage. Three rules were broken
+  one at a time to confirm a test fails for each: ties to even, notation chosen
+  after a carry, and the width limit.
+- One row in the PLAN.md table had a miscounted expected value
+  (`0.03333333333` instead of `0.033333333333`). The test caught it, and the
+  table was corrected.
