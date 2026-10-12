@@ -1094,6 +1094,57 @@ Settled while implementing:
   seconds.
 - The `coverage` target exports the reports.
 
+Settled while implementing:
+
+- **Stages.** A target builds only the stages it needs, so a plain
+  `docker build` runs no tests.
+  - `frontend-source` installs the dependencies with `npm ci`, then copies
+    the sources, so a source change does not reinstall them.
+    `frontend-build` runs `npm run build`.
+  - `backend-source` runs `go mod download`, copies the sources and the
+    frontend build into `internal/web/dist`. `backend-build` compiles a
+    static binary (`CGO_ENABLED=0`).
+  - `frontend-coverage` and `backend-coverage` run the tests, and
+    `coverage`, a `scratch` stage, holds only their reports.
+  - `runtime` comes last, so it is the default target.
+- **Images.**
+  - `node:24.21.0-trixie-slim`: Node 24 is the active LTS.
+  - `golang:1.27.2-trixie`: the latest patch of the version in `go.mod`.
+  - `gcr.io/distroless/static-debian13:nonroot` for the runtime.
+  - Debian rather than Alpine: Node and Go support their Alpine images
+    only unofficially, and with glibc the container matches most
+    development machines.
+  - The Node and Go versions are build arguments. Images are pinned by
+    version, not by digest.
+- **Build context** is an allowlist: `.dockerignore` excludes everything,
+  then lets in `backend/` and `frontend/` without their local output
+  (`node_modules`, `dist`, coverage reports, and a build copied into
+  `internal/web/dist`). `dist/.gitkeep` stays, so the sources in the image
+  match a checkout: `TestDist` fails without it.
+- **Runtime.** The binary only, as user `nonroot`, with `EXPOSE 8080`. The
+  exec-form `ENTRYPOINT` makes the server PID 1, so it receives the
+  `SIGTERM` from `docker stop` itself.
+- **Coverage target.**
+  - Frontend: `npm test`, which fails below the thresholds in the Vitest
+    config.
+  - Backend: the commands from [Coverage](#coverage), run against the real
+    frontend build, so `TestDist` and `TestRun` also check that the server
+    loads it. It fails when the total of `go tool cover -func` is below 90%.
+    The total also counts `cmd/server`, so it is stricter than the target
+    for `internal/*`.
+  - It exports `backend/summary.txt`, `backend/coverage.html` and
+    `frontend/`, the layout of the committed snapshot.
+- **Not done.**
+  - Multi-platform builds (`docker buildx --platform`). The stages run on
+    the machine's own platform, so an arm64 machine builds an arm64 image.
+  - A `HEALTHCHECK`: distroless has no shell or HTTP client to run one.
+- **Checked before the Docker run.** Every command of the build and coverage
+  stages was run on a copy of the sources filtered like the build context:
+  `npm ci`, the frontend build and tests, the Go tests against the real
+  build, the coverage threshold (it fails at 99%), and a static Linux build
+  with `go vet` for Linux. This found the missing `.gitkeep`. The frontend
+  reports came out in the same layout as the committed snapshot.
+
 **18. Delivery**
 
 - Generate the coverage snapshot into `coverage/` and commit it.

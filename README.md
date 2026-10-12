@@ -15,6 +15,7 @@ plan. The design decisions below summarize it.
 | `backend/` | Go module: `cmd/server` and `internal/{arith,parser,eval,api,web}` |
 | `frontend/` | Vite + React + TypeScript app |
 | `coverage/` | Committed coverage reports, see [Coverage](#coverage) |
+| `Dockerfile` | Multi-stage build of the single image, see [Docker](#docker) |
 | `PLAN.md` | Design decisions and implementation plan |
 | `Calculator UI.html` | The UI design, made while planning |
 | `prompts.md` | Prompts given to the AI assistant during development |
@@ -27,7 +28,25 @@ plan. The design decisions below summarize it.
 - Go 1.27+
 - Node.js 22.12+ and npm
 
-<!-- Step 17: Docker usage goes here. -->
+With Docker, neither is needed.
+
+### Docker
+
+The Dockerfile builds one image: the server with the frontend embedded in
+it. From the repository root:
+
+```sh
+docker build -t calculator .
+docker run --rm -p 8080:8080 calculator
+```
+
+The calculator is then at `http://localhost:8080/`.
+
+- Build stages install the dependencies, build the frontend and compile the
+  server. The image holds only the static binary, on distroless, and runs
+  as a non-root user.
+- `docker stop` sends `SIGTERM`, and the server shuts down gracefully:
+  requests in flight get up to 5 seconds to finish.
 
 ### Quick start
 
@@ -160,7 +179,14 @@ cp -r coverage/. ../coverage/frontend/
 In Windows PowerShell, copy with
 `Copy-Item -Recurse -Force coverage/* ../coverage/frontend/`.
 
-<!-- Step 17: the one-command regeneration with docker build goes here. -->
+With Docker, one command runs both test suites on Linux and writes the
+snapshot. It fails when the Go total drops below 90% or the frontend below
+its thresholds. `--output` needs BuildKit, the default builder since Docker
+23.
+
+```sh
+docker build --target coverage --output type=local,dest=coverage .
+```
 
 ## API examples
 

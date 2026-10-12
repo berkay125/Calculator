@@ -422,3 +422,21 @@ Design decisions or assumptions
 - The Docker parts (Docker usage, regenerating coverage with `docker build`)
   are left for step 17. The README marks their places.
 - PLAN.md step 18 records these decisions.
+
+## 22. Step 17 (summarized)
+
+- Asked to start step 17 without running Docker; the Docker checks are run
+  separately.
+
+**Changes:**
+
+- `Dockerfile`: Node and Go build stages, a `coverage` target that runs both
+  test suites and exports only their reports, and a distroless runtime that
+  runs the static binary as a non-root user.
+- `.dockerignore`: an allowlist of the backend and frontend sources, without
+  local dependencies and build output.
+- Every command of the build and coverage stages was run on a copy of the
+  sources filtered like the build context. This found a bug: excluding all of
+  `internal/web/dist` also dropped `.gitkeep`, so `TestDist` failed.
+- README: Docker usage and the one-command coverage regeneration, where step
+  18 left their places. PLAN.md step 17 records the decisions.

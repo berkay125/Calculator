@@ -1,0 +1,19 @@
+# The build context holds only the backend and frontend sources. Everything
+# else stays out, such as .git, the design file and the coverage snapshot.
+*
+!backend
+!frontend
+
+# Local dependencies and build output. The image builds its own. On Windows,
+# node_modules holds Windows binaries of the native packages, which do not run
+# in a Linux container, and a stale build copied into internal/web/dist would
+# be embedded next to the fresh one. dist/.gitkeep stays, as in a checkout.
+backend/bin
+backend/coverage.out
+backend/coverage.html
+backend/internal/web/dist/*
+!backend/internal/web/dist/.gitkeep
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/*.local
