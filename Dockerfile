@@ -10,8 +10,9 @@
 #
 #   docker build --target coverage --output type=local,dest=coverage .
 
-# Node: the active LTS line. Go: the latest patch of the version in
-# backend/go.mod.
+# Node: the active LTS line. Go: the toolchain line in backend/go.mod, which
+# local builds use too. Keep the two equal: Go versions can count coverage
+# statements differently, and the committed snapshot must match this build.
 ARG NODE_VERSION=24.21.0
 ARG GO_VERSION=1.27.2
 

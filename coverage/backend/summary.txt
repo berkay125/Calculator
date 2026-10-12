@@ -1,5 +1,5 @@
 calculator/cmd/server/main.go:39:		main			0.0%
-calculator/cmd/server/main.go:52:		run			91.2%
+calculator/cmd/server/main.go:52:		run			88.5%
 calculator/cmd/server/main.go:102:		newMux			100.0%
 calculator/cmd/server/main.go:123:		parseConfig		100.0%
 calculator/internal/api/errors.go:58:		writeError		100.0%
@@ -91,4 +91,4 @@ calculator/internal/parser/parser.go:226:	unexpected		100.0%
 calculator/internal/web/web.go:25:		Dist			75.0%
 calculator/internal/web/web.go:69:		NewHandler		100.0%
 calculator/internal/web/web.go:116:		readFile		100.0%
-total:						(statements)		98.1%
+total:						(statements)		98.0%

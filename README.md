@@ -28,7 +28,9 @@ plan. The design decisions below summarize it.
 - Go 1.27+
 - Node.js 22.12+ and npm
 
-With Docker, neither is needed.
+`backend/go.mod` names the Go 1.27.2 toolchain, which the Docker build also
+uses. An older `go` downloads it once and switches to it, so local coverage
+matches the Docker build. With Docker, neither Go nor Node is needed.
 
 ### Docker
 
@@ -154,9 +156,9 @@ GitHub shows the HTML reports as source, so open them from a local clone.
 | `internal/parser` | 100% |
 | `internal/eval` | 100% |
 | `internal/api` | 100% |
-| `internal/web` | 98.0% |
-| `cmd/server` | 85.7% |
-| **Total** | **98.1%** |
+| `internal/web` | 97.8% |
+| `cmd/server` | 83.6% |
+| **Total** | **98.0%** |
 
 Not covered: `main` itself, three error returns in `run` (the embedded build
 fails to load, `Serve` fails on its own, `Shutdown` runs out of time) and an

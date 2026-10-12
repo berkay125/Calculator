@@ -1109,7 +1109,10 @@ Settled while implementing:
   - `runtime` comes last, so it is the default target.
 - **Images.**
   - `node:24.21.0-trixie-slim`: Node 24 is the active LTS.
-  - `golang:1.27.2-trixie`: the latest patch of the version in `go.mod`.
+  - `golang:1.27.2-trixie`: the latest patch of Go 1.27. `go.mod` names
+    the same version in a `toolchain` line, so a local `go` switches to it
+    too. Go versions can count coverage statements differently, and the
+    snapshot must match whatever regenerates it.
   - `gcr.io/distroless/static-debian13:nonroot` for the runtime.
   - Debian rather than Alpine: Node and Go support their Alpine images
     only unofficially, and with glibc the container matches most
@@ -1144,6 +1147,19 @@ Settled while implementing:
   build, the coverage threshold (it fails at 99%), and a static Linux build
   with `go vet` for Linux. This found the missing `.gitkeep`. The frontend
   reports came out in the same layout as the committed snapshot.
+- **Checked with Docker,** building natively on linux/arm64:
+  - `docker build` succeeds, and the image is 9.84 MB.
+  - `docker run`: the log shows `listening` on `:8080` and no warning. In
+    the browser `2*(3+4)^2` gives `98`, and the fonts load.
+  - `docker stop` returns in under a second, the log ends with
+    `shutting down` and `stopped`, and `docker run` exits with 0.
+  - The `coverage` target exports the reports.
+- **Coverage depends on the Go version.** The Docker build reported 98.0%,
+  while the committed snapshot said 98.1%. Same code, same tests: Go 1.27.0
+  and 1.27.2 differ in how many statements they count in some blocks. In
+  `run`, 34 statements became 26, and the same three are uncovered, so 91.2%
+  became 88.5%. Reproduced on Windows with Go 1.27.2. Fixed by the
+  `toolchain` line in `go.mod` and a snapshot regenerated with 1.27.2.
 
 **18. Delivery**
 
@@ -1158,7 +1174,8 @@ Settled while implementing:
   in the README, regenerating the snapshot with `docker build`) are left for
   step 17, and the README marks their places with comments.
 - **Snapshot.** Generated with the commands in the README, which need no
-  Docker. Backend 98.1% of statements: every `internal` package is at 100%
+  Docker. Backend 98.0% of statements (with Go 1.27.2, see step 17): every
+  `internal` package is at 100%
   except an unreachable `panic` in `web`, and `cmd/server` misses `main` and
   three error returns in `run`. Frontend 100%.
   - Both sides have a `summary.txt`. GitHub shows HTML reports only as source,

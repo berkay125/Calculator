@@ -440,3 +440,11 @@ Design decisions or assumptions
   `internal/web/dist` also dropped `.gitkeep`, so `TestDist` failed.
 - README: Docker usage and the one-command coverage regeneration, where step
   18 left their places. PLAN.md step 17 records the decisions.
+- The Docker checks passed on another machine (linux/arm64): build, a 9.84 MB
+  image, the calculator in the browser, a graceful `docker stop` with exit
+  code 0, and the coverage export.
+- The Docker coverage said 98.0%, the committed snapshot 98.1%. The cause is
+  the Go version: 1.27.2 counts fewer statements in some blocks than 1.27.0,
+  with the same lines uncovered. `go.mod` now names the 1.27.2 toolchain,
+  which the Docker build uses too, and the backend snapshot and README table
+  were regenerated with it.
