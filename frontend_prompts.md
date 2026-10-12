@@ -221,3 +221,19 @@ a separate conversation with Claude while planning.
   width, with a mocked API, and compared with screenshots of the design. That
   check found that the error underline was clipped, and it was fixed.
 - Tests updated and extended, 100% coverage.
+
+## 12. Dead `^` on macOS
+
+```text
+On my Mac, Space after Shift+3 does not type ^. When I look at the event key in the console, I get Dead and Digit3.
+```
+
+**Changes:**
+
+- `src/calculator/keymap.ts`: a `Dead` key with `code: 'Digit3'`, which is
+  Shift+3 on a Turkish layout, now inserts `^` right away. On macOS no later
+  event carries the `^`: the Space that completes it arrives as a plain
+  `' '`. `y` and `Y` also insert `^`, on any layout.
+- `src/calculator/useKeyboard.ts`: Windows still delivers the finished `^`
+  with the next key, so a `^` right after the dead key is dropped. `^` is
+  inserted once on both systems, and also when a digit follows directly.

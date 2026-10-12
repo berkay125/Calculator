@@ -1181,14 +1181,15 @@ Settled while implementing:
 
 Settled while implementing:
 
-- **Order.** Step 18 was done before step 17. The Docker parts (Docker usage
-  in the README, regenerating the snapshot with `docker build`) are left for
-  step 17, and the README marks their places with comments.
+- **Order.** Step 18 was done before step 17, without Docker. Step 17 then
+  added the Docker usage to the README and the one-command regeneration of
+  the snapshot with `docker build`.
 - **Snapshot.** Generated with the commands in the README, which need no
   Docker. Backend 98.0% of statements (with Go 1.27.2, see step 17): every
-  `internal` package is at 100%
-  except an unreachable `panic` in `web`, and `cmd/server` misses `main` and
-  three error returns in `run`. Frontend 100%.
+  `internal` package is at 100% except an unreachable `panic` in `web`, and
+  `cmd/server` misses `main` and three error returns in `run`. Frontend
+  100%.
+  - The frontend report was regenerated after the dead `^` change in step 14.
   - Both sides have a `summary.txt`. GitHub shows HTML reports only as source,
     so these are the reports a reviewer can read there.
   - The reports name files by module or project path. Nothing in them comes
