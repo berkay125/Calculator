@@ -536,6 +536,7 @@ explains the thresholds.
 | `0`–`9` `.` `+` `-` `*` `/` `^` `%` `(` `)` | Insert the character |
 | `s` | Insert `sqrt(` |
 | `a` | Insert `Ans` |
+| `y` | Insert `^`, on any keyboard layout |
 | Enter, `=` | Calculate |
 | Backspace | Delete; `sqrt(` and `Ans` go in one step |
 | Escape | Clear |
@@ -544,6 +545,8 @@ explains the thresholds.
   Windows reports as Ctrl+Alt, still types.
 - The numpad decimal key types `,` on Turkish and German layouts. It inserts
   `.` here.
+- On Turkish layouts `^` (Shift+3) is a dead key. The browser reports no `^`
+  for it on macOS, so the app inserts `^` as soon as Shift+3 is pressed.
 - Clicked keys do not keep focus, so Enter calculates instead of pressing the
   last clicked key again. Keys reached with Tab still respond to Enter and
   Space.
@@ -587,9 +590,8 @@ The layout follows `Calculator UI.html`, a design made while planning.
 
 #### Known limitations
 
-- On layouts where `^` is a dead key (Turkish, German, French), type `^`
-  followed by Space. A `^` followed directly by a digit is lost. The keypad's
-  `xʸ` key always works.
+- On German and French layouts `^` is also a dead key, and only the Turkish
+  one is recognized. Type `y` there, or use the keypad's `xʸ` key.
 - The copy button needs the clipboard API, which browsers offer only on https
   and localhost.
 - When the backend is stopped, the dev server's proxy answers with an empty

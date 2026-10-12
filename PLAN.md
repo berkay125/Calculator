@@ -395,7 +395,8 @@ pinned by tests:
 - **Keyboard mapping.** A pure `keyToAction(event)` function and one `window`
   listener.
   - Digits and `. + - * / ^ % ( )` insert themselves. `s` or `S` inserts
-    `sqrt(`, and `a` or `A` inserts `Ans`.
+    `sqrt(`, `a` or `A` inserts `Ans`, and `y` or `Y` inserts `^` (after the
+    `xʸ` key; a `^` that works on every layout).
   - The numpad decimal key inserts `.`. It is matched by
     `code === 'NumpadDecimal'`, because it types `,` on Turkish and German
     layouts. With NumLock off it is Delete and is ignored.
@@ -407,9 +408,15 @@ pinned by tests:
     their default action.
   - `^` is a dead key on some layouts (Turkish, German, French), where
     `keydown` reports `key: 'Dead'`. Checked on a Turkish Q keyboard:
-    Shift+3 then Space types `^`, but Shift+3 then a digit types only the
-    digit, because the browser never reports the `^`. The keypad's `xʸ` key
-    always works.
+    - Windows: Shift+3 is `Dead`, and the Space after it arrives as `^`. A
+      digit after it arrives as the digit alone.
+    - macOS: Shift+3 is `Dead` with `code: 'Digit3'`, and the Space after it
+      arrives as a plain `' '`. No event ever carries the `^`.
+
+    So a `Dead` key with `code: 'Digit3'` inserts `^` right away. The listener
+    then drops a `^` that comes with the very next key, which is Windows
+    delivering the same `^` again. On other layouts, `y` or the keypad's `xʸ`
+    key types `^`.
   - Keypad buttons do not take focus on mouse click (`preventDefault` on
     mouse down; on pointer down it would not stop the focus). Otherwise Enter
     after a click would press the focused button again instead of
@@ -998,16 +1005,20 @@ generated values are checked against the width and notation rules.
 *Tests:*
 
 - A `keyToAction` table: Ctrl/Meta passthrough, AltGr (Ctrl+Alt) still types,
-  the numpad decimal key (with NumLock on and off), `s` and `a`, and keys that
-  are not ours (a dead key, Space, `x`).
+  the numpad decimal key (with NumLock on and off), `s`, `a` and `y`, the dead
+  `^` on the 3 key, and keys that are not ours (another dead key, Space, `x`).
+- The dead `^` with the key sequences of macOS (Space as `' '`) and Windows
+  (Space as `^`) and with a digit right after it: `^` is inserted once in each
+  case.
 - Typing `2*3{Enter}` with user-event shows the result. Backspace and Escape
   edit.
 - `preventDefault` is called for `/`, but not for `x` or Ctrl+C.
 - Enter after clicking a keypad button evaluates once and does not press the
   button again.
 - Enter and Space press a key that was reached with Tab.
-- Manual check of `^` on a Turkish keyboard (dead key): Shift+3 then Space
-  types `^`, Shift+3 then a digit loses the `^`.
+- Manual check of `^` on a Turkish keyboard (dead key), first on Windows, then
+  on macOS, which showed that Space arrives as a plain `' '` there. This led
+  to inserting the dead `^` right away.
 
 **15. Polish**
 

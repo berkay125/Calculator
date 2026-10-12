@@ -340,6 +340,40 @@ describe('App', () => {
       expect(expression()).toHaveTextContent('÷')
     })
 
+    // Key sequences as browsers report them for Shift+3 on a Turkish layout.
+    describe('dead ^', () => {
+      const deadCaret = { key: 'Dead', code: 'Digit3' }
+      const press = (...events: { key: string; code?: string }[]) => {
+        for (const event of events) {
+          fireEvent.keyDown(document.body, event)
+        }
+      }
+
+      it('is inserted on macOS, where Space completes it as a plain space', () => {
+        setup(vi.fn<Calculate>())
+        press({ key: '2' }, deadCaret, { key: ' ', code: 'Space' }, { key: '3' })
+        expect(expression()).toHaveTextContent(/^2\^3$/)
+      })
+
+      it('is inserted once on Windows, which delivers the finished ^ with Space', () => {
+        setup(vi.fn<Calculate>())
+        press({ key: '2' }, deadCaret, { key: '^', code: 'Space' }, { key: '3' })
+        expect(expression()).toHaveTextContent(/^2\^3$/)
+      })
+
+      it('is kept when a digit follows it directly', () => {
+        setup(vi.fn<Calculate>())
+        press({ key: '2' }, deadCaret, { key: '3' })
+        expect(expression()).toHaveTextContent(/^2\^3$/)
+      })
+
+      it('swallows only the ^ right after it', () => {
+        setup(vi.fn<Calculate>())
+        press(deadCaret, { key: '^' }, { key: '^' })
+        expect(expression()).toHaveTextContent(/^\^\^$/)
+      })
+    })
+
     it('Enter after clicking a key evaluates once and does not press the key again', async () => {
       const calculate = respondWith({ kind: 'ok', result: '5' })
       const user = setup(calculate)
