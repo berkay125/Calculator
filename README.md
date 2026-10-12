@@ -5,8 +5,8 @@ parses and evaluates expressions such as `2 * (3 + 4) ^ 2` with a hand-written
 parser and exact decimal arithmetic. One Go binary serves both the API and the
 frontend.
 
-[PLAN.md](PLAN.md) has the full design and the step-by-step implementation
-plan. The design decisions below summarize it.
+This README covers the essentials. [PLAN.md](PLAN.md) has the full design, the
+reasoning behind each decision and the step-by-step implementation plan.
 
 ## Repository layout
 
@@ -15,7 +15,7 @@ plan. The design decisions below summarize it.
 | `backend/` | Go module: `cmd/server` and `internal/{arith,parser,eval,api,web}` |
 | `frontend/` | Vite + React + TypeScript app |
 | `coverage/` | Committed coverage reports, see [Coverage](#coverage) |
-| `Dockerfile` | Multi-stage build of the single image, see [Docker](#docker) |
+| `Dockerfile` | Multi-stage build of the single image |
 | `PLAN.md` | Design decisions and implementation plan |
 | `Calculator UI.html` | The UI design, made while planning |
 | `prompts.md` | Prompts given to the AI assistant during development |
@@ -25,35 +25,27 @@ plan. The design decisions below summarize it.
 
 ### Prerequisites
 
-- Go 1.27+
-- Node.js 22.12+ and npm
+- Go 1.27+. `backend/go.mod` names the 1.27.2 toolchain, which an older `go`
+  downloads once, so local coverage matches the Docker build.
+- Node.js 22.12+ and npm.
 
-`backend/go.mod` names the Go 1.27.2 toolchain, which the Docker build also
-uses. An older `go` downloads it once and switches to it, so local coverage
-matches the Docker build. With Docker, neither Go nor Node is needed.
+With Docker, neither is needed.
 
 ### Docker
-
-The Dockerfile builds one image: the server with the frontend embedded in
-it. From the repository root:
 
 ```sh
 docker build -t calculator .
 docker run --rm -p 8080:8080 calculator
 ```
 
-The calculator is then at `http://localhost:8080/`.
+The calculator is then at `http://localhost:8080/`. The image holds only the
+static server binary, with the frontend embedded, and runs on distroless as a
+non-root user.
 
-- Build stages install the dependencies, build the frontend and compile the
-  server. The image holds only the static binary, on distroless, and runs
-  as a non-root user.
-- `docker stop` sends `SIGTERM`, and the server shuts down gracefully:
-  requests in flight get up to 5 seconds to finish.
+### Without Docker
 
-### Quick start
-
-Build the frontend, copy the build into the backend, which embeds it into the
-binary, and start the server. From the repository root:
+Build the frontend, copy the build into the backend, which embeds it, and start
+the server. From the repository root:
 
 ```sh
 npm --prefix frontend ci
@@ -66,129 +58,60 @@ go run ./cmd/server
 In Windows PowerShell, copy with
 `Copy-Item -Recurse -Force frontend/dist/* backend/internal/web/dist/`.
 
-The calculator is then at `http://localhost:8080/`. The copied build is
-gitignored. Without it, the server serves only the API and logs a warning.
+The calculator is then at `http://localhost:8080/`. Without the copied build,
+which is gitignored, the server serves only the API.
 
 ## Running the backend and frontend
 
-For development, run the backend and the Vite dev server side by side. The
-dev server forwards `/api` to the backend.
+For development, run both side by side. The Vite dev server forwards `/api` to
+the backend on `localhost:8080`.
 
-### Backend
-
-Run these from `backend/`:
+From `backend/`:
 
 ```sh
-go run ./cmd/server                 # serve on :8080
-go run ./cmd/server -addr :8090     # or another address (env ADDR works too)
+go run ./cmd/server     # serve on :8080 (-addr or env ADDR to change it)
 go vet ./...
-go test ./...
+go test ./...           # also runs the fuzz seeds
+
+# search for new failing inputs
+go test ./internal/parser -fuzz=FuzzParse -fuzztime=1m
+go test ./internal/eval -fuzz=FuzzEvaluate -fuzztime=1m
 ```
 
 The server logs JSON lines to stderr. Ctrl+C or `SIGTERM` stops it
 gracefully: requests in flight get up to 5 seconds to finish.
 
-`go test` also runs the fuzz seeds. To search for new failing inputs:
-
-```sh
-go test ./internal/parser -fuzz=FuzzParse -fuzztime=1m
-go test ./internal/eval -fuzz=FuzzEvaluate -fuzztime=1m
-```
-
-### Frontend
-
-Run these from `frontend/`:
+From `frontend/`:
 
 ```sh
 npm ci              # install dependencies
 npm run dev         # dev server on http://localhost:5173
-npm test            # run tests with coverage (fails below the thresholds)
-npm run test:watch  # run tests in watch mode
+npm test            # tests with coverage (fails below 85%)
 npm run typecheck   # type-check with tsc
 npm run lint        # lint with oxlint
 npm run build       # production build into dist/
-npm run preview     # serve the production build
 ```
-
-`npm run dev` and `npm run preview` forward `/api` to the backend on
-`localhost:8080`, so start the backend first. The frontend calls the relative
-URL `/api/v1/calculate`. In production the Go server serves the frontend and
-the API from the same origin, so there is no CORS and nothing to configure.
 
 ## Coverage
 
-### Backend
-
-Run these from `backend/`:
-
-```sh
-go test ./... -coverpkg=./... -coverprofile=coverage.out
-go tool cover -func=coverage.out                    # summary
-go tool cover -html=coverage.out -o coverage.html   # HTML report
-```
-
-With `-coverpkg=./...`, code counts as covered when any package's tests run
-it. For example, the `eval` tests also cover `arith`.
-
-### Frontend
-
-`npm test` writes a summary to the terminal, a table of every file to
-`frontend/coverage/summary.txt` and an HTML report to
-`frontend/coverage/index.html`. It fails when any of statements, branches,
-functions or lines drops below 85%.
-
-### Committed snapshot
-
-The reports above are gitignored. A snapshot is committed under `coverage/`:
-
-| File | Contents |
+| Area | Coverage |
 |---|---|
-| `coverage/backend/summary.txt` | Coverage of every Go function |
-| `coverage/backend/coverage.html` | Go source annotated with coverage |
-| `coverage/frontend/summary.txt` | Coverage of every frontend file |
-| `coverage/frontend/index.html` | HTML report of the frontend |
+| `internal/arith`, `parser`, `eval`, `api` | 100% |
+| `internal/web` | 97.8%: an unreachable `panic` |
+| `cmd/server` | 83.6%: `main` and three error returns in `run` |
+| **Backend total** | **98.0%** of statements |
+| **Frontend** | **100%** of statements, branches, functions and lines |
 
-GitHub shows the HTML reports as source, so open them from a local clone.
-
-| Backend package | Statements |
-|---|---|
-| `internal/arith` | 100% |
-| `internal/parser` | 100% |
-| `internal/eval` | 100% |
-| `internal/api` | 100% |
-| `internal/web` | 97.8% |
-| `cmd/server` | 83.6% |
-| **Total** | **98.0%** |
-
-Not covered: `main` itself, three error returns in `run` (the embedded build
-fails to load, `Serve` fails on its own, `Shutdown` runs out of time) and an
-unreachable `panic` in `web.Dist`.
-
-The frontend is at 100% for statements, branches, functions and lines.
-
-To regenerate the snapshot, from the repository root:
-
-```sh
-cd backend
-go test ./... -coverpkg=./... -coverprofile=coverage.out
-go tool cover -func=coverage.out -o ../coverage/backend/summary.txt
-go tool cover -html=coverage.out -o ../coverage/backend/coverage.html
-cd ../frontend
-npm test
-cp -r coverage/. ../coverage/frontend/
-```
-
-In Windows PowerShell, copy with
-`Copy-Item -Recurse -Force coverage/* ../coverage/frontend/`.
-
-With Docker, one command runs both test suites on Linux and writes the
-snapshot. It fails when the Go total drops below 90% or the frontend below
-its thresholds. `--output` needs BuildKit, the default builder since Docker
-23.
+The reports are committed under `coverage/`: a `summary.txt` and an HTML report
+for each side. GitHub shows HTML as source, so open those from a local clone.
+To regenerate them:
 
 ```sh
 docker build --target coverage --output type=local,dest=coverage .
 ```
+
+The build fails when the Go total drops below 90% or the frontend below 85%.
+PLAN.md lists the commands without Docker, under [Coverage](PLAN.md#coverage).
 
 ## API examples
 
@@ -264,339 +187,100 @@ answers 500 with the code `internal_error`.
 Where the assignment left room for interpretation:
 
 - **Math conventions.** `^` binds tighter than unary minus and is
-  right-associative, as in mathematics: `-2^2` is `-4` (spreadsheets give 4),
-  and `2^3^2` is 512. `0^0` is 1.
+  right-associative: `-2^2` is `-4` (spreadsheets give 4), and `2^3^2` is 512.
+  `0^0` is 1.
 - **Percent** works like a phone calculator: `200 + 10%` is 220, not 200.1 as
   in a spreadsheet.
-- **Precision.** 34 significant digits are enough. Longer results are rounded,
-  ties to even, and the screen shows at most 12 digits.
-- **Undefined math is an error.** `1/0` and `sqrt(-1)` return an error, never
-  Infinity or NaN.
+- **Precision.** 34 significant digits are enough. The screen shows at most 12.
+- **Undefined math is an error**, never Infinity or NaN.
 - **Stateless server.** The client keeps `Ans` and sends it with every
   request. There are no sessions, accounts or history.
-- **Public endpoint.** There is no authentication, so every input is bounded
-  (see [Limits](#limits)).
-- **Input.** Expressions are ASCII, with `.` as the decimal point. `sqrt` is
-  the only function.
+- **Public endpoint** without authentication, so every input is bounded.
+- **Input** is ASCII, with `.` as the decimal point. `sqrt` is the only
+  function.
 
 ### Backend
 
-The full rules are in PLAN.md, under
-[Parser and evaluator design](PLAN.md#parser-and-evaluator-design).
-
-#### Packages
-
-Each layer is its own package, and dependencies point one way:
-
-| Package | Job | Depends on |
-|---|---|---|
-| `internal/parser` | Lexer, AST, precedence climbing | nothing |
-| `internal/arith` | Decimal operations, function registry, math errors | apd |
-| `internal/eval` | Walks the AST: percent rule, names, `Ans` | `parser`, `arith` |
-| `internal/api` | HTTP handler, limits, error code → status | `eval` |
-| `internal/web` | Serves the embedded frontend build | nothing |
-| `cmd/server` | Wires `api` and `web`, timeouts, graceful shutdown | `api`, `web` |
-
-apd is the only third-party Go dependency. The parser keeps number literals as
-text, so it does not import apd.
-
-#### Hand-written parser, one precedence table
-
-Binary operators are parsed by precedence climbing. Their binding powers sit
-in one table in `internal/parser/parser.go`, next to the powers of unary minus
-and postfix percent:
-
-| Operator | Power | Associativity |
-|---|---|---|
-| `+ -` | 1 | left |
-| `* /` | 2 | left |
-| unary `-` | 3 | prefix |
-| `^` | 4 | right |
-| `%` | 5 | postfix |
-
-- So `-2^2` is `-4`, `2^-1` is `0.5`, `2^3^2` is `512` and
-  `2 * (3 + 4) ^ 2` is `98`.
-- Parentheses stay in the tree as a `Group` node, because they change what
-  percent means (see below).
-- The lexer accepts ASCII only, so a position is a byte, rune and JavaScript
-  string index at once. The frontend highlights it directly.
-- Syntax errors, at the offending character: implicit multiplication
-  (`2(3)`), unary plus (`+2`), scientific notation (`1e5`) and `5.`. `.5` is
-  accepted.
-
-#### Exact decimal arithmetic
-
-- `cockroachdb/apd` with the limits of IEEE 754 decimal128: 34 significant
-  digits, exponents up to ±6144, and ties rounded to even.
-- Literals and `ans` keep every digit. Only operation results are rounded, so
-  a result never depends on digits that were dropped before the operation.
-  Unary minus is exact.
-- The final value is rounded to 34 digits too, so a long literal on its own
-  comes back with 34 digits.
-- Results are normalized: `1.50 + 1.50` is `3`, and `-0` is `0`. They use
-  plain notation from `1E-7` up to 34 integer digits, and scientific notation
-  (`1E-8`, `1.5E+40`) outside that. Every result parses back as `ans`.
-- `0^0` is `1`, and `0^-1` is `division_by_zero`. apd treats the first as
-  undefined and returns Infinity for the second without an error.
-- Results outside the exponent range are `overflow` or `underflow`, never
-  infinity or zero. For powers the direction is worked out from the operands,
-  because apd reports some powers that overflow as underflow.
-
-#### Percent like a phone calculator
-
-The parser treats `%` as a postfix operator. What it means depends on where it
-appears, so the evaluator applies the rule:
-
-| Expression | Meaning | Example |
-|---|---|---|
-| `a + b%`, `a - b%` | a ± a·b/100 | `200 + 10%` = 220 |
-| `a * b%`, `a / b%` | b/100 | `200 * 10%` = 20 |
-| `b%` on its own | b/100 | `50%` = 0.5 |
-
-- The rule applies when the right operand of `+` or `-` is a percent, also
-  behind minus signs: `100 + -10%` is 90.
-- Parentheses block it, because a `Group` node is not a percent:
-  `100 + (10%)` is 100.1.
-- It compounds, like a phone calculator: `200 + 10% + 10%` is 242.
-
-#### `Ans` is a variable, not text
-
-- The request sends `ans` as its own field, and `Ans` in the expression is a
-  variable. Names are case-sensitive, so `ans` in an expression is an unknown
-  variable.
-- Substituting the value into the text would move error positions away from
-  what the user sees. The backend's output format (`1.5E+40`) would also have
-  to be valid input.
-- `ans` has at most 34 digits, like every result, and a longer one is
-  `invalid_ans`. Every problem with `ans` is a 400, overflow included: it is
-  invalid input, not undefined math.
-
-#### Functions without touching the parser
-
-- The parser accepts a call to any name. The evaluator looks the name up in a
-  registry in `arith`, which holds each function's arity and implementation.
-- Adding a function such as `log10` takes one registry entry and a test. Only
-  `sqrt` exists today.
-- Variables are resolved from a table as well, so a constant such as `pi`
-  would be one more entry.
-
-#### Errors
-
-- Every error type has a `Code()` method, and positional errors also have
-  `Pos()`. The `api` package knows only these interfaces, plus one
-  code → status table.
-- `eval.Codes()` lists every code evaluation can return, and a test checks
-  that each one has a status. A new code without one fails the test instead
-  of becoming a 500.
-- Names and argument counts are checked before anything is computed, so
-  `1/0 + x` is a 400 `unknown_variable`, not a 422.
-- Math errors point at the operator or function that failed: `1 / 0` at the
-  `/`.
-- The request body is decoded strictly with `encoding/json/v2`. An unknown
-  field, a field in different case (`ANS`) or a repeated field is
-  `invalid_request`. Otherwise a misspelled `ans` would be ignored, and the
-  result would silently be wrong.
-
-#### Limits
-
-The endpoint is public, so every input is bounded:
-
-| Limit | Value |
-|---|---|
-| Request body | 4 KiB |
-| Expression | 1000 characters |
-| `ans` | 34 digits |
-| Parenthesis nesting | 100 levels |
-| Numbers | decimal128 exponent range, so `10^10^10` fails fast with `overflow` |
-| Server timeouts | Read header 5 s, read and write 10 s, idle 60 s |
-
-The slowest request found takes about 0.4 s.
-
-#### Serving the frontend
-
-- The frontend build is embedded with `go:embed`, so one binary serves the API
-  under `/api/` and the frontend at `/`. They share an origin, so there is no
-  CORS to configure.
-- Only the build's files are served, with GET and HEAD. There are no directory
-  listings, no dotfiles, and no fallback to `index.html`, because the app has
-  no client-side routes.
-- Content types come from a fixed table. A file with an unknown extension stops
-  the server at startup, so nothing is served with a guessed type.
-- Vite's content-hashed files under `assets/` are cached as immutable.
-  `index.html` is revalidated with an ETag, so a new build shows up at once.
-
-#### Tests
-
-- Table-driven tests in every package. The `api` and `web` packages are tested
-  with `httptest`. `run` is tested on a random port, including a graceful
-  shutdown with a request in flight.
-- Two fuzz targets:
-  - `FuzzParse`: no input panics, error and node positions are in range, the
-    tree follows the precedence table, and printing a tree and parsing it
-    again gives the same tree.
-  - `FuzzEvaluate`, with a fuzzed `ans`: every error has a code from the
-    catalog and a position in range, and every result has at most 34 digits
-    and parses back as `ans`.
-- Fuzzing found a bug: a non-integer power of a base with thousands of digits
-  failed with an error that had no code, and was slow well before that.
-  `arith.Pow` now splits such a power into integer and fractional parts.
-- Most rules were checked by breaking them on purpose, for example a
-  left-associative `^` or `Close` instead of `Shutdown`, and confirming that a
-  test fails.
-
-#### Trade-offs and limitations
-
-- Precision is finite. `1/3*3` is `0.9999999999999999999999999999999999`.
-  The display rounds it to `≈ 1`, and `Ans` keeps the exact value, as on phone
-  calculators.
-- Non-integer powers are computed through ln/exp and are approximate.
-- The percent rule applies only to the right operand of `+` and `-`:
-  `200 + 10% * 2` is 200.2, because the right operand is `10% * 2`.
-- Very long or very deeply nested input is rejected by the limits.
-- There is no rate limiting, and requests are not logged.
-- Out of scope: functions other than `sqrt`, constants, implicit
-  multiplication, scientific notation in input, modulo and history.
-- Static files are not compressed. The JavaScript is 230 KB, 72 KB gzipped.
+- **Exact decimal arithmetic.** `cockroachdb/apd` with the limits of IEEE 754
+  decimal128: 34 significant digits, ties rounded to even. `0.1 + 0.2` is
+  exactly `0.3`. Inputs keep every digit, and only operation results are
+  rounded. Numbers cross the API as strings, so JSON never turns them into
+  floats.
+- **Hand-written parser, one precedence table.** Precedence climbing, with the
+  binding power of every operator in one table in
+  `internal/parser/parser.go`: `+ -` < `* /` < unary `-` < `^`
+  (right-associative) < postfix `%`.
+- **Layers point one way.** `parser` depends on nothing and `arith` only on
+  apd, the only third-party Go dependency. `eval` combines the two, `api`
+  knows only `eval`, and `cmd/server` wires `api` and `web` together.
+- **The evaluator owns percent.** Its meaning depends on context: `a ± b%` is
+  a ± a·b/100, and everywhere else `b%` is b/100. Parentheses stay in the tree
+  as a `Group` node and block the rule: `100 + (10%)` is 100.1.
+- **`Ans` is a variable, not text.** It travels in its own `ans` field.
+  Substituting it into the expression would move error positions away from
+  what the user sees, and the output format (`1.5E+40`) would have to be valid
+  input.
+- **Functions are a registry.** The parser accepts a call to any name, and the
+  evaluator looks it up in `arith`. Adding `log10` takes one entry and a test.
+- **Every error has a code.** Error types expose `Code()`, and positional ones
+  `Pos()`. The API maps codes to statuses in one table, and a test walks every
+  code, so a new one cannot fall through to a 500. Names are checked before
+  any math, so `1/0 + x` is a 400.
+- **Strict, bounded input.** The body is decoded with `encoding/json/v2`,
+  which rejects unknown, differently cased and repeated fields. A misspelled
+  `ans` would otherwise be ignored, and the result would silently be wrong.
+  Every input has a limit (see the error codes), and the exponent range makes
+  `10^10^10` fail fast with `overflow`.
+- **One binary.** The frontend build is embedded with `go:embed`, so the app
+  and the API share an origin and need no CORS. Hashed assets are cached as
+  immutable, and `index.html` is revalidated with an ETag.
 
 ### Frontend
 
-The full rules are in PLAN.md, under
-[Frontend design](PLAN.md#frontend-design).
+- **One pure reducer.** The keypad and the keyboard dispatch the same actions.
+  Every request carries an id, any edit cancels it, and a response whose id
+  does not match is dropped, so a slow response never overwrites newer input.
+- **The screen shows exactly what is sent.** Only one-character swaps are
+  made (`*` → `×`, `/` → `÷`, `-` → `−`), so error positions from the backend
+  highlight the right character. The backend is the only parser.
+- **Rounded on screen, exact underneath.** The display shows at most 12
+  significant digits, rounded on the decimal string, never through
+  `Number()`. A rounded result is marked `≈` and shows its exact value with a
+  copy button. `Ans` keeps the exact value.
+- **`Ans` as on a scientific calculator.** It starts at 0. After a result, an
+  operator continues from `Ans`, and `=` runs an expression that uses `Ans`
+  again: `Ans*2+1`, `=`, `=` gives 1, 3, 7.
+- **Keyboard and screen readers.** Every key can be typed: `s` for `sqrt(`,
+  `a` for `Ans`, `y` for `^`, Enter, Backspace and Escape. The dead `^` of
+  Turkish layouts works too. The result is a live region, errors are alerts,
+  and every key has an accessible name.
+- **Responses are validated at runtime.** Anything outside the API contract
+  is shown as an unexpected response and never reaches the formatter.
 
-#### One reducer, and stale responses are dropped
+### Testing
 
-- The keypad and the keyboard dispatch the same actions to one pure reducer
-  (`src/calculator/reducer.ts`). Every behavior has a single implementation
-  with table-driven tests.
-- Pressing `=` puts a request with a new id into the state. The
-  `useCalculator` hook sends it from an effect and aborts it in the effect's
-  cleanup.
-- Any edit clears the pending request. The reducer drops a response whose id
-  does not match, so a slow response can never overwrite newer input.
+- Table-driven tests in every package, and `httptest` for the API and the
+  static files. A test shuts the server down with a request in flight.
+- Two Go fuzz targets check the parser and evaluator invariants. Fuzzing found
+  a real bug: a non-integer power of a very long base failed without an error
+  code, and was slow well before that.
+- Frontend tests use Vitest and React Testing Library. The API call is
+  injected, so tests decide when a response arrives.
+- Most rules were checked by breaking them on purpose and confirming that a
+  test fails. Headless Chrome also ran 19 end-to-end scenarios against the
+  real server.
 
-#### The display shows exactly what is sent
+### Trade-offs and limitations
 
-Error positions from the backend are indexes into the expression, so the
-screen shows the same string, character for character.
-
-- Only one-character swaps are allowed: `*` → `×`, `/` → `÷`, `-` → `−`.
-- `√` therefore inserts the text `sqrt(`, and the expression is not spaced
-  out.
-
-#### The backend is the only parser
-
-The reducer does not know the grammar. It appends keys, and the backend
-reports syntax errors with a position, which the display highlights.
-
-There is one exception. Right after `Ans`, a digit, `(`, `Ans` or `√` is
-ignored. The lexer would merge it into one name (`Ans5`), and the error would
-be a misleading "unknown variable".
-
-#### Ans
-
-- `Ans` is sent as the `ans` field and is never substituted into the text, so
-  error positions match the screen.
-- It starts at `0`, as on scientific calculators.
-- After a result, `=` runs an expression that uses `Ans` again with the new
-  value, as on a Casio: `Ans*2+1`, `=`, `=`, … gives 1, 3, 7, …
-- After a result, an operator continues from `Ans` (`+` gives `Ans+`). Any
-  other key starts a new expression.
-
-#### Rounding for the screen
-
-The backend returns up to 34 significant digits. The display shows at most
-12, rounded once with ties to even. The formatter works on the decimal string
-and never calls `Number()`, which would lose digits and overflow above 1e308.
-
-| Rule | Value |
-|---|---|
-| Width | 14 characters, not counting a minus sign |
-| Plain notation | `0.001 ≤ abs(x) < 10^12` |
-| Scientific notation | Everything else, in the backend's format (`1.5E+40`) |
-| Marker | `=` for an exact result, `≈` for a rounded one |
-
-A rounded result also shows its exact value, with a copy button. `Ans` always
-keeps the exact value. [Display formatting](PLAN.md#display-formatting)
-explains the thresholds.
-
-#### Errors
-
-- The UI shows its own message for each error code. Syntax errors are the
-  exception: the backend's message is more specific, and the column is added
-  (`Unexpected ')' at column 4`).
-- The API client returns `ok`, `error` (a known code), `unexpected` or
-  `network`. `unexpected` covers anything outside the contract: a 5xx, a body
-  that is not JSON, an unknown code, or a position outside the expression.
-  Responses are validated at runtime, so the display can trust every value.
-
-#### Keyboard
-
-| Key | Action |
-|---|---|
-| `0`–`9` `.` `+` `-` `*` `/` `^` `%` `(` `)` | Insert the character |
-| `s` | Insert `sqrt(` |
-| `a` | Insert `Ans` |
-| `y` | Insert `^`, on any keyboard layout |
-| Enter, `=` | Calculate |
-| Backspace | Delete; `sqrt(` and `Ans` go in one step |
-| Escape | Clear |
-
-- Ctrl and Meta shortcuts such as Ctrl+C stay with the browser. AltGr, which
-  Windows reports as Ctrl+Alt, still types.
-- The numpad decimal key types `,` on Turkish and German layouts. It inserts
-  `.` here.
-- On Turkish layouts `^` (Shift+3) is a dead key. The browser reports no `^`
-  for it on macOS, so the app inserts `^` as soon as Shift+3 is pressed.
-- Clicked keys do not keep focus, so Enter calculates instead of pressing the
-  last clicked key again. Keys reached with Tab still respond to Enter and
-  Space.
-
-#### Accessibility
-
-- Every key has an accessible name: `Divide`, `Square root`,
-  `Insert last answer`, …
-- The result is a live region. Screen readers hear "Equals 5" or
-  "Approximately 0.333333333333".
-- Errors appear in a `role="alert"` element. The expression is marked
-  `aria-invalid` and points to the alert with `aria-describedby`.
-- While a request is pending, the result has `aria-busy`. The visual loading
-  state appears only after 200 ms, so fast requests do not flash.
-
-#### Visual design
-
-The layout follows `Calculator UI.html`, a design made while planning.
-
-- The fonts are IBM Plex Sans and IBM Plex Mono, self-hosted through
-  `@fontsource`, so the app makes no third-party requests.
-- On phones the calculator fills the screen. From 600px wide it becomes a
-  centered card.
-- The design's history panel is not built, because history is out of scope.
-
-#### Tests
-
-- Vitest, React Testing Library and user-event, in jsdom.
-- The reducer, formatter, keymap and API client have table-driven unit tests.
-  The formatter is also checked against 2000 generated values for its width
-  and notation rules.
-- Component tests render the app with an injected `calculate`, so they control
-  when a response arrives, and whether it arrives at all. Only the API client
-  tests mock `fetch`.
-- The key rules were checked by breaking each one on purpose and confirming
-  that a test fails.
-- The layout was checked in headless Chrome at 390 × 844 and at desktop width.
-- An end-to-end check in headless Chrome typed 19 scenarios against the real
-  server: results, rounding, `Ans` and repeated `=`, and every error the
-  keypad can produce.
-
-#### Known limitations
-
-- On German and French layouts `^` is also a dead key, and only the Turkish
-  one is recognized. Type `y` there, or use the keypad's `xʸ` key.
+- Precision is finite: `1/3*3` is `0.999…9` with 34 nines. The screen shows
+  `≈ 1`, and `Ans` keeps the exact value, as on phone calculators.
+- Non-integer powers are computed through ln/exp and are approximate.
+- The percent rule applies only to the right operand of `+` and `-`:
+  `200 + 10% * 2` is 200.2.
+- Very long or deeply nested input is rejected, and there is no rate limiting.
+- Only the Turkish dead `^` is recognized. On German and French layouts, type
+  `y` or use the `xʸ` key.
 - The copy button needs the clipboard API, which browsers offer only on https
   and localhost.
-- When the backend is stopped, the dev server's proxy answers with an empty
-  500. The app then shows "Unexpected response from the server" rather than
-  "Cannot reach the server".
-- The result switches to the smaller font based on the number of characters,
-  not on the measured width of the text.
-- There is only a light theme, as in the design.
+- Out of scope: functions other than `sqrt`, constants, implicit
+  multiplication, scientific notation in input, modulo and history.

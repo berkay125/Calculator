@@ -502,6 +502,20 @@ go tool cover -html=coverage.out -o coverage.html      # report
 - The README contains a summary table.
 - The snapshot is reproducible on any OS with one command:
   `docker build --target coverage --output type=local,dest=coverage .`
+- Without Docker, from the repository root:
+
+  ```sh
+  cd backend
+  go test ./... -coverpkg=./... -coverprofile=coverage.out
+  go tool cover -func=coverage.out -o ../coverage/backend/summary.txt
+  go tool cover -html=coverage.out -o ../coverage/backend/coverage.html
+  cd ../frontend
+  npm test
+  cp -r coverage/. ../coverage/frontend/
+  ```
+
+  In Windows PowerShell, copy with
+  `Copy-Item -Recurse -Force coverage/* ../coverage/frontend/`.
 
 ## Docker
 
@@ -1210,14 +1224,23 @@ Settled while implementing:
     result with its exact value, a syntax error and a division by zero. The
     fonts loaded, and no request failed.
 
-## Known trade-offs (to document in the README)
+## Known trade-offs
+
+The README lists the main ones. Minor frontend limitations are only here.
 
 - **Inexact results.** Precision is finite: `1/3*3` evaluates to `0.999…9`, and
   only display rounding shows `1`. Non-integer powers are approximate.
 - **Percent rule.** The rule applies only when the percent is the right operand
   of `+`/`-` (possibly negated). For example, `200 + 10% * 2` is `200.2`.
 - **Limits.** Body size, expression length and nesting depth are capped, so
-  very long or very deeply nested inputs are rejected.
+  very long or very deeply nested inputs are rejected. There is no rate
+  limiting.
+- **Dev proxy.** When the backend is stopped, the Vite dev server's proxy
+  answers with an empty 500. The app then shows "Unexpected response from the
+  server" rather than "Cannot reach the server".
+- **Result font.** The result switches to the smaller font based on the number
+  of characters, not on the measured width of the text.
+- **Theme.** There is only a light theme, as in the design.
 
 ## Out of scope
 
