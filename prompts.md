@@ -384,3 +384,41 @@ step 9. also: shut down on SIGTERM too. and the run() test should check it retur
 - Checked by hand with the real build: `curl.exe` for the headers and status
   codes, and headless Chrome calculating `2*(3+4)^2` against the server.
 - PLAN.md step 16 records the decisions. README: how to embed the frontend.
+
+## 20. Step 18
+
+```text
+start step 18 bypass docker parts wsl is downloading. coverage and readme. while writing the readme dont use only plan file some implementation may change in the process. check implementation always.
+```
+
+## 21. README requirements
+
+Sent while step 18 was in progress, pasted from the assignment:
+
+```text
+Make sure your README includes:
+Setup instructions
+How to run the frontend and backend
+Examples of API calls (if using REST)
+Design decisions or assumptions
+```
+
+**Changes (prompts 20 and 21):**
+
+- Coverage snapshot committed under `coverage/`: the Go HTML report and
+  per-function summary, and the Vitest HTML report. The Vitest config gains a
+  `summary.txt` that lists every file, so both sides have a report that is
+  readable on GitHub. Backend 98.1% of statements, frontend 100%.
+- README finished and checked against the code, not only PLAN.md:
+  - Its sections follow the assignment's list: setup, running the backend
+    and frontend, API examples, and design decisions and assumptions.
+  - New: a quick start, the coverage summary and how to regenerate it, the
+    assumptions, the backend design decisions, and trade-offs and
+    limitations.
+  - Every API example was sent to the running server, and more were added.
+- Final check from a clean clone: both sides installed, type-checked,
+  linted, tested and built. The binary served the app, and headless Chrome
+  typed expressions into it.
+- The Docker parts (Docker usage, regenerating coverage with `docker build`)
+  are left for step 17. The README marks their places.
+- PLAN.md step 18 records these decisions.

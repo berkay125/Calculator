@@ -469,7 +469,9 @@ go tool cover -html=coverage.out -o coverage.html      # report
 
 ### Frontend
 
-- `@vitest/coverage-v8` with `text` and `html` reporters.
+- `@vitest/coverage-v8` with `text` and `html` reporters. A second `text`
+  reporter writes every file to `coverage/summary.txt`, because the terminal
+  lists only the files with missing coverage.
 - Coverage includes `src/**` and excludes `main.tsx` and config files.
 - `coverage.thresholds` in the Vitest config fails `npm test` when coverage
   drops below the target.
@@ -489,7 +491,7 @@ go tool cover -html=coverage.out -o coverage.html      # report
   committed:
   - `coverage/backend/coverage.html`
   - `coverage/backend/summary.txt`
-  - `coverage/frontend/`
+  - `coverage/frontend/`: the HTML report and `summary.txt`
 - The README contains a summary table.
 - The snapshot is reproducible on any OS with one command:
   `docker build --target coverage --output type=local,dest=coverage .`
@@ -1098,6 +1100,35 @@ Settled while implementing:
 - Finish the README: setup, Docker usage, design decisions, error catalog,
   coverage summary and known trade-offs.
 - Final check from a clean clone.
+
+Settled while implementing:
+
+- **Order.** Step 18 was done before step 17. The Docker parts (Docker usage
+  in the README, regenerating the snapshot with `docker build`) are left for
+  step 17, and the README marks their places with comments.
+- **Snapshot.** Generated with the commands in the README, which need no
+  Docker. Backend 98.1% of statements: every `internal` package is at 100%
+  except an unreachable `panic` in `web`, and `cmd/server` misses `main` and
+  three error returns in `run`. Frontend 100%.
+  - Both sides have a `summary.txt`. GitHub shows HTML reports only as source,
+    so these are the reports a reviewer can read there.
+  - The reports name files by module or project path. Nothing in them comes
+    from the machine that generated them.
+- **README.** Written against the code, not only this plan. Every API example
+  was sent to the running server.
+  - Its top-level sections follow the assignment's list: setup, running the
+    backend and frontend, API examples, and design decisions and assumptions.
+    Coverage has a section of its own.
+  - New: a quick start, the coverage summary, the assumptions, the backend
+    design decisions, and trade-offs and limitations.
+- **Final check from a clean clone**, without Docker:
+  - `npm ci`, type check, lint, tests and build.
+  - The build copied into `internal/web/dist`, then `gofmt`, `go vet`, the
+    tests and `go build`.
+  - The binary served the page and all 60 files of the build.
+  - Headless Chrome typed expressions on the keyboard: results, a rounded
+    result with its exact value, a syntax error and a division by zero. The
+    fonts loaded, and no request failed.
 
 ## Known trade-offs (to document in the README)
 

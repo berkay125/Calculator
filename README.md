@@ -2,18 +2,21 @@
 
 A calculator with a React + TypeScript frontend and a Go backend. The backend
 parses and evaluates expressions such as `2 * (3 + 4) ^ 2` with a hand-written
-parser and exact decimal arithmetic.
+parser and exact decimal arithmetic. One Go binary serves both the API and the
+frontend.
 
-> Work in progress. [PLAN.md](PLAN.md) describes the design and the
-> implementation steps.
+[PLAN.md](PLAN.md) has the full design and the step-by-step implementation
+plan. The design decisions below summarize it.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `backend/` | Go module: `internal/{arith,parser,eval,api,web}` |
+| `backend/` | Go module: `cmd/server` and `internal/{arith,parser,eval,api,web}` |
 | `frontend/` | Vite + React + TypeScript app |
+| `coverage/` | Committed coverage reports, see [Coverage](#coverage) |
 | `PLAN.md` | Design decisions and implementation plan |
+| `Calculator UI.html` | The UI design, made while planning |
 | `prompts.md` | Prompts given to the AI assistant during development |
 | `frontend_prompts.md` | Prompts from the separate session that built the frontend |
 
@@ -24,14 +27,38 @@ parser and exact decimal arithmetic.
 - Go 1.27+
 - Node.js 22.12+ and npm
 
-### Backend
+<!-- Step 17: Docker usage goes here. -->
 
-<!-- Backend session: the Docker usage (step 17) goes here. -->
+### Quick start
+
+Build the frontend, copy the build into the backend, which embeds it into the
+binary, and start the server. From the repository root:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run build
+cp -r frontend/dist/. backend/internal/web/dist/
+cd backend
+go run ./cmd/server
+```
+
+In Windows PowerShell, copy with
+`Copy-Item -Recurse -Force frontend/dist/* backend/internal/web/dist/`.
+
+The calculator is then at `http://localhost:8080/`. The copied build is
+gitignored. Without it, the server serves only the API and logs a warning.
+
+## Running the backend and frontend
+
+For development, run the backend and the Vite dev server side by side. The
+dev server forwards `/api` to the backend.
+
+### Backend
 
 Run these from `backend/`:
 
 ```sh
-go run ./cmd/server                 # serve the API on :8080
+go run ./cmd/server                 # serve on :8080
 go run ./cmd/server -addr :8090     # or another address (env ADDR works too)
 go vet ./...
 go test ./...
@@ -40,33 +67,12 @@ go test ./...
 The server logs JSON lines to stderr. Ctrl+C or `SIGTERM` stops it
 gracefully: requests in flight get up to 5 seconds to finish.
 
-```sh
-curl -X POST localhost:8080/api/v1/calculate -d '{"expression": "2 * (3 + 4) ^ 2"}'
-# {"result":"98"}
-```
-
 `go test` also runs the fuzz seeds. To search for new failing inputs:
 
 ```sh
 go test ./internal/parser -fuzz=FuzzParse -fuzztime=1m
 go test ./internal/eval -fuzz=FuzzEvaluate -fuzztime=1m
 ```
-
-To serve the frontend from the same server, copy its production build into
-`backend/internal/web/dist/`, which is embedded into the binary. From the
-repository root:
-
-```sh
-npm --prefix frontend run build
-cp -r frontend/dist/. backend/internal/web/dist/
-```
-
-In Windows PowerShell, copy with
-`Copy-Item -Recurse -Force frontend/dist/* backend/internal/web/dist/`.
-
-Then `go run ./cmd/server` serves the calculator at `http://localhost:8080/`.
-The copy is gitignored. Without it, the server serves only the API and logs a
-warning.
 
 ### Frontend
 
@@ -88,9 +94,9 @@ npm run preview     # serve the production build
 URL `/api/v1/calculate`. In production the Go server serves the frontend and
 the API from the same origin, so there is no CORS and nothing to configure.
 
-### Coverage
+## Coverage
 
-#### Backend
+### Backend
 
 Run these from `backend/`:
 
@@ -100,16 +106,61 @@ go tool cover -func=coverage.out                    # summary
 go tool cover -html=coverage.out -o coverage.html   # HTML report
 ```
 
-#### Frontend
+With `-coverpkg=./...`, code counts as covered when any package's tests run
+it. For example, the `eval` tests also cover `arith`.
 
-`npm test` writes a text summary to the terminal and an HTML report to
+### Frontend
+
+`npm test` writes a summary to the terminal, a table of every file to
+`frontend/coverage/summary.txt` and an HTML report to
 `frontend/coverage/index.html`. It fails when any of statements, branches,
 functions or lines drops below 85%.
 
-#### Committed snapshot
+### Committed snapshot
 
-The development reports above are gitignored. The final snapshot is committed
-under `coverage/` (see PLAN.md, step 18).
+The reports above are gitignored. A snapshot is committed under `coverage/`:
+
+| File | Contents |
+|---|---|
+| `coverage/backend/summary.txt` | Coverage of every Go function |
+| `coverage/backend/coverage.html` | Go source annotated with coverage |
+| `coverage/frontend/summary.txt` | Coverage of every frontend file |
+| `coverage/frontend/index.html` | HTML report of the frontend |
+
+GitHub shows the HTML reports as source, so open them from a local clone.
+
+| Backend package | Statements |
+|---|---|
+| `internal/arith` | 100% |
+| `internal/parser` | 100% |
+| `internal/eval` | 100% |
+| `internal/api` | 100% |
+| `internal/web` | 98.0% |
+| `cmd/server` | 85.7% |
+| **Total** | **98.1%** |
+
+Not covered: `main` itself, three error returns in `run` (the embedded build
+fails to load, `Serve` fails on its own, `Shutdown` runs out of time) and an
+unreachable `panic` in `web.Dist`.
+
+The frontend is at 100% for statements, branches, functions and lines.
+
+To regenerate the snapshot, from the repository root:
+
+```sh
+cd backend
+go test ./... -coverpkg=./... -coverprofile=coverage.out
+go tool cover -func=coverage.out -o ../coverage/backend/summary.txt
+go tool cover -html=coverage.out -o ../coverage/backend/coverage.html
+cd ../frontend
+npm test
+cp -r coverage/. ../coverage/frontend/
+```
+
+In Windows PowerShell, copy with
+`Copy-Item -Recurse -Force coverage/* ../coverage/frontend/`.
+
+<!-- Step 17: the one-command regeneration with docker build goes here. -->
 
 ## API examples
 
@@ -139,15 +190,22 @@ More requests and their responses:
 | Request body | Status | Response body |
 |---|---|---|
 | `{"expression": "0.1 + 0.2"}` | 200 | `{"result":"0.3"}` |
+| `{"expression": "-2^2"}` | 200 | `{"result":"-4"}` |
 | `{"expression": "200 + 10%"}` | 200 | `{"result":"220"}` |
+| `{"expression": "100 + (10%)"}` | 200 | `{"result":"100.1"}` |
 | `{"expression": "Ans * 2", "ans": "21"}` | 200 | `{"result":"42"}` |
 | `{"expression": "1 / 3"}` | 200 | `{"result":"0.3333333333333333333333333333333333"}` |
+| `{"expression": "2 ^ 200"}` | 200 | `{"result":"1.606938044258990275541962092341163E+60"}` |
 | `{"expression": "2 * (3 + 4))"}` | 400 | `{"error":{"code":"syntax_error","message":"unexpected ')'","position":11}}` |
+| `{"expression": "1/0 + x"}` | 400 | `{"error":{"code":"unknown_variable","message":"unknown variable 'x'","position":6}}` |
+| `{"expression": "1", "answer": "5"}` | 400 | `{"error":{"code":"invalid_request","message":"unknown field \"answer\""}}` |
 | `{"expression": "1 / 0"}` | 422 | `{"error":{"code":"division_by_zero","message":"division by zero","position":2}}` |
+| `{"expression": "sqrt(-1)"}` | 422 | `{"error":{"code":"domain_error","message":"result is not a real number","position":0}}` |
 
 - `position` is a 0-based index into `expression`. It is left out when it does
   not apply.
-- Any method other than `POST` gets `405 Method Not Allowed`.
+- Any method other than `POST` gets `405 Method Not Allowed`. Other paths
+  under `/api/` get 404.
 
 ### Error codes
 
@@ -155,8 +213,8 @@ More requests and their responses:
 
 | Status | Code | When | `position` |
 |---|---|---|---|
-| 400 | `invalid_request` | Malformed JSON, missing `expression`, unknown field, body over 4 KiB | – |
-| 400 | `invalid_ans` | `ans` is not a valid decimal, or has more than 34 digits | – |
+| 400 | `invalid_request` | Malformed JSON, missing `expression`, unknown or repeated field, body over 4 KiB | – |
+| 400 | `invalid_ans` | `ans` is not a valid decimal, is outside the exponent range, or has more than 34 digits | – |
 | 400 | `expression_too_long` | Expression longer than 1000 characters | – |
 | 400 | `nesting_too_deep` | Parentheses nested more than 100 levels deep | ✓ |
 | 400 | `syntax_error` | Unexpected token, unclosed parenthesis, empty expression | ✓ |
@@ -168,11 +226,209 @@ More requests and their responses:
 | 422 | `overflow` | Result exceeds the exponent range | ✓ |
 | 422 | `underflow` | Result is too close to zero for the exponent range | ✓ |
 
-## Design decisions
+An error without a code from this table is a bug. The server logs it and
+answers 500 with the code `internal_error`.
+
+## Design decisions and assumptions
+
+### Assumptions
+
+Where the assignment left room for interpretation:
+
+- **Math conventions.** `^` binds tighter than unary minus and is
+  right-associative, as in mathematics: `-2^2` is `-4` (spreadsheets give 4),
+  and `2^3^2` is 512. `0^0` is 1.
+- **Percent** works like a phone calculator: `200 + 10%` is 220, not 200.1 as
+  in a spreadsheet.
+- **Precision.** 34 significant digits are enough. Longer results are rounded,
+  ties to even, and the screen shows at most 12 digits.
+- **Undefined math is an error.** `1/0` and `sqrt(-1)` return an error, never
+  Infinity or NaN.
+- **Stateless server.** The client keeps `Ans` and sends it with every
+  request. There are no sessions, accounts or history.
+- **Public endpoint.** There is no authentication, so every input is bounded
+  (see [Limits](#limits)).
+- **Input.** Expressions are ASCII, with `.` as the decimal point. `sqrt` is
+  the only function.
 
 ### Backend
 
-<!-- Backend session: parser, decimal arithmetic, percent rule, Ans, errors and limits (PLAN.md step 18). -->
+The full rules are in PLAN.md, under
+[Parser and evaluator design](PLAN.md#parser-and-evaluator-design).
+
+#### Packages
+
+Each layer is its own package, and dependencies point one way:
+
+| Package | Job | Depends on |
+|---|---|---|
+| `internal/parser` | Lexer, AST, precedence climbing | nothing |
+| `internal/arith` | Decimal operations, function registry, math errors | apd |
+| `internal/eval` | Walks the AST: percent rule, names, `Ans` | `parser`, `arith` |
+| `internal/api` | HTTP handler, limits, error code → status | `eval` |
+| `internal/web` | Serves the embedded frontend build | nothing |
+| `cmd/server` | Wires `api` and `web`, timeouts, graceful shutdown | `api`, `web` |
+
+apd is the only third-party Go dependency. The parser keeps number literals as
+text, so it does not import apd.
+
+#### Hand-written parser, one precedence table
+
+Binary operators are parsed by precedence climbing. Their binding powers sit
+in one table in `internal/parser/parser.go`, next to the powers of unary minus
+and postfix percent:
+
+| Operator | Power | Associativity |
+|---|---|---|
+| `+ -` | 1 | left |
+| `* /` | 2 | left |
+| unary `-` | 3 | prefix |
+| `^` | 4 | right |
+| `%` | 5 | postfix |
+
+- So `-2^2` is `-4`, `2^-1` is `0.5`, `2^3^2` is `512` and
+  `2 * (3 + 4) ^ 2` is `98`.
+- Parentheses stay in the tree as a `Group` node, because they change what
+  percent means (see below).
+- The lexer accepts ASCII only, so a position is a byte, rune and JavaScript
+  string index at once. The frontend highlights it directly.
+- Syntax errors, at the offending character: implicit multiplication
+  (`2(3)`), unary plus (`+2`), scientific notation (`1e5`) and `5.`. `.5` is
+  accepted.
+
+#### Exact decimal arithmetic
+
+- `cockroachdb/apd` with the limits of IEEE 754 decimal128: 34 significant
+  digits, exponents up to ±6144, and ties rounded to even.
+- Literals and `ans` keep every digit. Only operation results are rounded, so
+  a result never depends on digits that were dropped before the operation.
+  Unary minus is exact.
+- The final value is rounded to 34 digits too, so a long literal on its own
+  comes back with 34 digits.
+- Results are normalized: `1.50 + 1.50` is `3`, and `-0` is `0`. They use
+  plain notation from `1E-7` up to 34 integer digits, and scientific notation
+  (`1E-8`, `1.5E+40`) outside that. Every result parses back as `ans`.
+- `0^0` is `1`, and `0^-1` is `division_by_zero`. apd treats the first as
+  undefined and returns Infinity for the second without an error.
+- Results outside the exponent range are `overflow` or `underflow`, never
+  infinity or zero. For powers the direction is worked out from the operands,
+  because apd reports some powers that overflow as underflow.
+
+#### Percent like a phone calculator
+
+The parser treats `%` as a postfix operator. What it means depends on where it
+appears, so the evaluator applies the rule:
+
+| Expression | Meaning | Example |
+|---|---|---|
+| `a + b%`, `a - b%` | a ± a·b/100 | `200 + 10%` = 220 |
+| `a * b%`, `a / b%` | b/100 | `200 * 10%` = 20 |
+| `b%` on its own | b/100 | `50%` = 0.5 |
+
+- The rule applies when the right operand of `+` or `-` is a percent, also
+  behind minus signs: `100 + -10%` is 90.
+- Parentheses block it, because a `Group` node is not a percent:
+  `100 + (10%)` is 100.1.
+- It compounds, like a phone calculator: `200 + 10% + 10%` is 242.
+
+#### `Ans` is a variable, not text
+
+- The request sends `ans` as its own field, and `Ans` in the expression is a
+  variable. Names are case-sensitive, so `ans` in an expression is an unknown
+  variable.
+- Substituting the value into the text would move error positions away from
+  what the user sees. The backend's output format (`1.5E+40`) would also have
+  to be valid input.
+- `ans` has at most 34 digits, like every result, and a longer one is
+  `invalid_ans`. Every problem with `ans` is a 400, overflow included: it is
+  invalid input, not undefined math.
+
+#### Functions without touching the parser
+
+- The parser accepts a call to any name. The evaluator looks the name up in a
+  registry in `arith`, which holds each function's arity and implementation.
+- Adding a function such as `log10` takes one registry entry and a test. Only
+  `sqrt` exists today.
+- Variables are resolved from a table as well, so a constant such as `pi`
+  would be one more entry.
+
+#### Errors
+
+- Every error type has a `Code()` method, and positional errors also have
+  `Pos()`. The `api` package knows only these interfaces, plus one
+  code → status table.
+- `eval.Codes()` lists every code evaluation can return, and a test checks
+  that each one has a status. A new code without one fails the test instead
+  of becoming a 500.
+- Names and argument counts are checked before anything is computed, so
+  `1/0 + x` is a 400 `unknown_variable`, not a 422.
+- Math errors point at the operator or function that failed: `1 / 0` at the
+  `/`.
+- The request body is decoded strictly with `encoding/json/v2`. An unknown
+  field, a field in different case (`ANS`) or a repeated field is
+  `invalid_request`. Otherwise a misspelled `ans` would be ignored, and the
+  result would silently be wrong.
+
+#### Limits
+
+The endpoint is public, so every input is bounded:
+
+| Limit | Value |
+|---|---|
+| Request body | 4 KiB |
+| Expression | 1000 characters |
+| `ans` | 34 digits |
+| Parenthesis nesting | 100 levels |
+| Numbers | decimal128 exponent range, so `10^10^10` fails fast with `overflow` |
+| Server timeouts | Read header 5 s, read and write 10 s, idle 60 s |
+
+The slowest request found takes about 0.4 s.
+
+#### Serving the frontend
+
+- The frontend build is embedded with `go:embed`, so one binary serves the API
+  under `/api/` and the frontend at `/`. They share an origin, so there is no
+  CORS to configure.
+- Only the build's files are served, with GET and HEAD. There are no directory
+  listings, no dotfiles, and no fallback to `index.html`, because the app has
+  no client-side routes.
+- Content types come from a fixed table. A file with an unknown extension stops
+  the server at startup, so nothing is served with a guessed type.
+- Vite's content-hashed files under `assets/` are cached as immutable.
+  `index.html` is revalidated with an ETag, so a new build shows up at once.
+
+#### Tests
+
+- Table-driven tests in every package. The `api` and `web` packages are tested
+  with `httptest`. `run` is tested on a random port, including a graceful
+  shutdown with a request in flight.
+- Two fuzz targets:
+  - `FuzzParse`: no input panics, error and node positions are in range, the
+    tree follows the precedence table, and printing a tree and parsing it
+    again gives the same tree.
+  - `FuzzEvaluate`, with a fuzzed `ans`: every error has a code from the
+    catalog and a position in range, and every result has at most 34 digits
+    and parses back as `ans`.
+- Fuzzing found a bug: a non-integer power of a base with thousands of digits
+  failed with an error that had no code, and was slow well before that.
+  `arith.Pow` now splits such a power into integer and fractional parts.
+- Most rules were checked by breaking them on purpose, for example a
+  left-associative `^` or `Close` instead of `Shutdown`, and confirming that a
+  test fails.
+
+#### Trade-offs and limitations
+
+- Precision is finite. `1/3*3` is `0.9999999999999999999999999999999999`.
+  The display rounds it to `≈ 1`, and `Ans` keeps the exact value, as on phone
+  calculators.
+- Non-integer powers are computed through ln/exp and are approximate.
+- The percent rule applies only to the right operand of `+` and `-`:
+  `200 + 10% * 2` is 200.2, because the right operand is `10% * 2`.
+- Very long or very deeply nested input is rejected by the limits.
+- There is no rate limiting, and requests are not logged.
+- Out of scope: functions other than `sqrt`, constants, implicit
+  multiplication, scientific notation in input, modulo and history.
+- Static files are not compressed. The JavaScript is 230 KB, 72 KB gzipped.
 
 ### Frontend
 

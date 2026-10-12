@@ -16,7 +16,13 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html'],
+      // The terminal shows only files with missing coverage; summary.txt
+      // lists every file.
+      reporter: [
+        'text',
+        'html',
+        ['text', { file: 'summary.txt', skipFull: false }],
+      ],
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/main.tsx',

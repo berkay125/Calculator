@@ -1,0 +1,1836 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>server: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">calculator/cmd/server/main.go (85.7%)</option>
+				
+				<option value="file1">calculator/internal/api/errors.go (100.0%)</option>
+				
+				<option value="file2">calculator/internal/api/handler.go (100.0%)</option>
+				
+				<option value="file3">calculator/internal/arith/arith.go (100.0%)</option>
+				
+				<option value="file4">calculator/internal/arith/errors.go (100.0%)</option>
+				
+				<option value="file5">calculator/internal/arith/format.go (100.0%)</option>
+				
+				<option value="file6">calculator/internal/arith/functions.go (100.0%)</option>
+				
+				<option value="file7">calculator/internal/eval/errors.go (100.0%)</option>
+				
+				<option value="file8">calculator/internal/eval/eval.go (100.0%)</option>
+				
+				<option value="file9">calculator/internal/eval/value.go (100.0%)</option>
+				
+				<option value="file10">calculator/internal/parser/ast.go (100.0%)</option>
+				
+				<option value="file11">calculator/internal/parser/errors.go (100.0%)</option>
+				
+				<option value="file12">calculator/internal/parser/lexer.go (100.0%)</option>
+				
+				<option value="file13">calculator/internal/parser/parser.go (100.0%)</option>
+				
+				<option value="file14">calculator/internal/web/web.go (98.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">// Command server serves the calculator API and the frontend.
+package main
+
+import (
+        "context"
+        "errors"
+        "flag"
+        "fmt"
+        "io"
+        "io/fs"
+        "log/slog"
+        "net"
+        "net/http"
+        "os"
+        "os/signal"
+        "syscall"
+        "time"
+
+        "calculator/internal/api"
+        "calculator/internal/web"
+)
+
+const (
+        defaultAddr = ":8080"
+
+        readHeaderTimeout = 5 * time.Second
+        readTimeout       = 10 * time.Second
+        writeTimeout      = 10 * time.Second
+        idleTimeout       = 60 * time.Second
+        // shutdownTimeout is how long requests in flight get to finish. docker
+        // stop kills the process 10 seconds after it sends SIGTERM.
+        shutdownTimeout = 5 * time.Second
+)
+
+// shutdownSignals stop the server gracefully: Ctrl+C sends os.Interrupt, and
+// docker stop sends SIGTERM.
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+
+func main() {
+        <span class="cov0" title="0">ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
+        err := run(ctx, os.Args[1:], os.Getenv, os.Stderr)
+        stop()
+        if err != nil </span>{
+                <span class="cov0" title="0">fmt.Fprintln(os.Stderr, "server:", err)
+                os.Exit(1)
+</span>        }
+}
+
+// run serves the app until ctx is cancelled, then shuts down gracefully and
+// returns nil. args are the command-line arguments without the program name,
+// getenv reads environment variables, and logs go to stderr as JSON.
+func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) error {
+        <span class="cov8" title="1">cfg, err := parseConfig(args, getenv, stderr)
+        if errors.Is(err, flag.ErrHelp) </span>{
+                <span class="cov8" title="1">return nil
+</span>        }
+        <span class="cov8" title="1">if err != nil </span>{
+                <span class="cov8" title="1">return err
+</span>        }
+        <span class="cov8" title="1">log := slog.New(slog.NewJSONHandler(stderr, nil))
+        handler, err := newMux(log, web.Dist())
+        if err != nil </span>{
+                <span class="cov0" title="0">return err
+</span>        }
+
+        <span class="cov8" title="1">ln, err := net.Listen("tcp", cfg.addr)
+        if err != nil </span>{
+                <span class="cov8" title="1">return err
+</span>        }
+        <span class="cov8" title="1">srv := &amp;http.Server{
+                Handler:           handler,
+                ReadHeaderTimeout: readHeaderTimeout,
+                ReadTimeout:       readTimeout,
+                WriteTimeout:      writeTimeout,
+                IdleTimeout:       idleTimeout,
+                ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
+</span>        }
+        <span class="cov8" title="1">log.Info("listening", "addr", ln.Addr().String())
+</span>
+        <span class="cov8" title="1">serveErr := make(chan error, 1)
+        go func() </span>{ <span class="cov8" title="1">serveErr &lt;- srv.Serve(ln) }</span>()
+        <span class="cov8" title="1">select </span>{
+        case err := &lt;-serveErr:
+                // Shutdown has not been called, so Serve failed.
+                <span class="cov0" title="0">return err</span>
+        case &lt;-ctx.Done():<span class="cov8" title="1"></span>
+        }
+
+        <span class="cov8" title="1">log.Info("shutting down")
+        shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+        defer cancel()
+        if err := srv.Shutdown(shutdownCtx); err != nil </span>{
+                <span class="cov0" title="0">return fmt.Errorf("shutdown: %w", err)
+</span>        }
+        <span class="cov8" title="1">log.Info("stopped")
+        return nil</span>
+}
+
+// newMux serves the API under /api/ and the frontend build static at /. The
+// API has its own mux, so it answers every /api/ path itself:
+// GET /api/v1/calculate gets 405 and never falls through to the frontend.
+func newMux(log *slog.Logger, static fs.FS) (http.Handler, error) {
+        <span class="cov8" title="1">files, err := web.NewHandler(static)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">if _, err := fs.Stat(static, "index.html"); err != nil </span>{
+                <span class="cov8" title="1">log.Warn("the frontend is not built into the binary; serving only the API")
+</span>        }
+        <span class="cov8" title="1">mux := http.NewServeMux()
+        mux.Handle("/api/", api.NewHandler(log))
+        mux.Handle("/", files)
+        return mux, nil</span>
+}
+
+type config struct {
+        addr string
+}
+
+// parseConfig reads the listen address from the -addr flag, then the ADDR
+// environment variable, then defaultAddr. Usage and flag errors are written
+// to stderr; -h returns flag.ErrHelp.
+func parseConfig(args []string, getenv func(string) string, stderr io.Writer) (config, error) {
+        <span class="cov8" title="1">addr := getenv("ADDR")
+        if addr == "" </span>{
+                <span class="cov8" title="1">addr = defaultAddr
+</span>        }
+        <span class="cov8" title="1">var cfg config
+        fs := flag.NewFlagSet("server", flag.ContinueOnError)
+        fs.SetOutput(stderr)
+        fs.StringVar(&amp;cfg.addr, "addr", addr, "listen `address`, such as :8080 (env ADDR)")
+        if err := fs.Parse(args); err != nil </span>{
+                <span class="cov8" title="1">return config{}, err
+</span>        }
+        <span class="cov8" title="1">if fs.NArg() &gt; 0 </span>{
+                <span class="cov8" title="1">return config{}, fmt.Errorf("unexpected arguments: %q", fs.Args())
+</span>        }
+        // An empty address would listen on a random port.
+        <span class="cov8" title="1">if cfg.addr == "" </span>{
+                <span class="cov8" title="1">return config{}, errors.New("-addr must not be empty")
+</span>        }
+        <span class="cov8" title="1">return cfg, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package api
+
+import (
+        "encoding/json/v2"
+        "errors"
+        "net/http"
+)
+
+// The codes of the errors the handler finds itself.
+const (
+        codeInvalidRequest    = "invalid_request"
+        codeInvalidAns        = "invalid_ans"
+        codeExpressionTooLong = "expression_too_long"
+)
+
+// statusByCode maps every error code to its HTTP status: 400 for invalid
+// input, 422 for undefined math. A code missing here is answered with 500.
+var statusByCode = map[string]int{
+        codeInvalidRequest:     http.StatusBadRequest,
+        codeInvalidAns:         http.StatusBadRequest,
+        codeExpressionTooLong:  http.StatusBadRequest,
+        "nesting_too_deep":     http.StatusBadRequest,
+        "syntax_error":         http.StatusBadRequest,
+        "unknown_function":     http.StatusBadRequest,
+        "unknown_variable":     http.StatusBadRequest,
+        "wrong_argument_count": http.StatusBadRequest,
+        "division_by_zero":     http.StatusUnprocessableEntity,
+        "domain_error":         http.StatusUnprocessableEntity,
+        "overflow":             http.StatusUnprocessableEntity,
+        "underflow":            http.StatusUnprocessableEntity,
+}
+
+// coded is an error with an error code. The handler knows errors only through
+// this interface and positional, not through their concrete types.
+type coded interface {
+        error
+        Code() string
+}
+
+// positional is an error that also knows where in the expression it is.
+type positional interface {
+        Pos() int
+}
+
+type errorResponse struct {
+        Error errorBody `json:"error"`
+}
+
+type errorBody struct {
+        Code    string `json:"code"`
+        Message string `json:"message"`
+        // Position is a pointer so that 0 is written and a missing position is
+        // left out.
+        Position *int `json:"position,omitempty"`
+}
+
+// writeError writes an error with a code from statusByCode.
+func writeError(w http.ResponseWriter, code, message string, position *int) {
+        <span class="cov8" title="1">body := errorBody{Code: code, Message: message, Position: position}
+        writeJSON(w, statusByCode[code], errorResponse{body})
+</span>}
+
+// writeEvalError answers an error from evaluating expression. An error without
+// a known code is a bug: it is logged, and the client gets 500.
+func (h *handler) writeEvalError(w http.ResponseWriter, expression string, err error) {
+        <span class="cov8" title="1">var c coded
+        if errors.As(err, &amp;c) </span>{
+                <span class="cov8" title="1">if _, ok := statusByCode[c.Code()]; ok </span>{
+                        <span class="cov8" title="1">var position *int
+                        if p, ok := c.(positional); ok </span>{
+                                <span class="cov8" title="1">pos := p.Pos()
+                                position = &amp;pos
+</span>                        }
+                        <span class="cov8" title="1">writeError(w, c.Code(), c.Error(), position)
+                        return</span>
+                }
+        }
+        <span class="cov8" title="1">h.log.Error("evaluate failed", "expression", expression, "error", err)
+        body := errorBody{Code: "internal_error", Message: "internal server error"}
+        writeJSON(w, http.StatusInternalServerError, errorResponse{body})</span>
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+        <span class="cov8" title="1">w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(status)
+</span>        // An error here means the client has gone away; there is no one to tell.
+        <span class="cov8" title="1">_ = json.MarshalWrite(w, v)
+</span>}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package api
+
+import (
+        "encoding/json/jsontext"
+        "encoding/json/v2"
+        "errors"
+        "fmt"
+        "io"
+        "log/slog"
+        "net/http"
+
+        "calculator/internal/eval"
+)
+
+// Input limits. The endpoint is public, so every input is bounded.
+const (
+        maxBodyBytes = 4 &lt;&lt; 10
+        // maxExpressionLength counts bytes. Only ASCII is valid in an expression,
+        // so for valid input that is the number of characters.
+        maxExpressionLength = 1000
+)
+
+type request struct {
+        // Pointers tell a missing field from an empty one: a missing expression is
+        // an invalid request, an empty one is a syntax error.
+        Expression *string `json:"expression"`
+        Ans        *string `json:"ans"`
+}
+
+type response struct {
+        Result string `json:"result"`
+}
+
+// evaluateFunc is the signature of eval.Evaluate. Tests replace it to reach
+// errors that eval never returns.
+type evaluateFunc func(expression string, vars map[string]eval.Value) (eval.Value, error)
+
+type handler struct {
+        evaluate evaluateFunc
+        log      *slog.Logger
+}
+
+// NewHandler returns the API's handler, which serves POST /api/v1/calculate.
+// Other methods get 405. Unexpected errors are logged to log and answered
+// with 500.
+func NewHandler(log *slog.Logger) http.Handler {
+        <span class="cov8" title="1">return newHandler(eval.Evaluate, log)
+</span>}
+
+func newHandler(evaluate evaluateFunc, log *slog.Logger) http.Handler {
+        <span class="cov8" title="1">h := &amp;handler{evaluate: evaluate, log: log}
+        mux := http.NewServeMux()
+        mux.HandleFunc("POST /api/v1/calculate", h.calculate)
+        return mux
+</span>}
+
+func (h *handler) calculate(w http.ResponseWriter, r *http.Request) {
+        <span class="cov8" title="1">req, err := decodeRequest(w, r)
+        if err != nil </span>{
+                <span class="cov8" title="1">writeError(w, codeInvalidRequest, err.Error(), nil)
+                return
+</span>        }
+        <span class="cov8" title="1">expression := *req.Expression
+        if len(expression) &gt; maxExpressionLength </span>{
+                <span class="cov8" title="1">msg := fmt.Sprintf("expression is longer than %d characters", maxExpressionLength)
+                writeError(w, codeExpressionTooLong, msg, nil)
+                return
+</span>        }
+        <span class="cov8" title="1">var vars map[string]eval.Value
+        if req.Ans != nil </span>{
+                // Every ParseValue error is invalid input, including overflow, so its
+                // code does not go through the status table.
+                <span class="cov8" title="1">ans, err := eval.ParseValue(*req.Ans)
+                if err != nil </span>{
+                        <span class="cov8" title="1">writeError(w, codeInvalidAns, ansMessage(err), nil)
+                        return
+</span>                }
+                <span class="cov8" title="1">vars = map[string]eval.Value{"Ans": ans}</span>
+        }
+        <span class="cov8" title="1">result, err := h.evaluate(expression, vars)
+        if err != nil </span>{
+                <span class="cov8" title="1">h.writeEvalError(w, expression, err)
+                return
+</span>        }
+        <span class="cov8" title="1">writeJSON(w, http.StatusOK, response{Result: result.String()})</span>
+}
+
+// decodeRequest reads the JSON body: exactly one object whose member names
+// match exactly. An unknown, differently cased or repeated name is an error,
+// because ignoring a misspelled "ans" would silently give a wrong result. A
+// returned error's message is meant for the client.
+func decodeRequest(w http.ResponseWriter, r *http.Request) (request, error) {
+        <span class="cov8" title="1">data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+        if _, ok := errors.AsType[*http.MaxBytesError](err); ok </span>{
+                <span class="cov8" title="1">return request{}, fmt.Errorf("request body is larger than %d bytes", maxBodyBytes)
+</span>        }
+        <span class="cov8" title="1">if err != nil </span>{
+                <span class="cov8" title="1">return request{}, errors.New("request body could not be read")
+</span>        }
+        <span class="cov8" title="1">if len(data) == 0 </span>{
+                <span class="cov8" title="1">return request{}, errors.New("request body is empty")
+</span>        }
+        <span class="cov8" title="1">var req request
+        if err := json.Unmarshal(data, &amp;req, json.RejectUnknownMembers(true)); err != nil </span>{
+                <span class="cov8" title="1">return request{}, decodeError(err)
+</span>        }
+        <span class="cov8" title="1">if req.Expression == nil </span>{
+                <span class="cov8" title="1">return request{}, errors.New("expression is missing")
+</span>        }
+        <span class="cov8" title="1">return req, nil</span>
+}
+
+// decodeError describes a JSON decoding error without Go type names.
+func decodeError(err error) error {
+        <span class="cov8" title="1">if serr, ok := errors.AsType[*jsontext.SyntacticError](err); ok &amp;&amp; serr.Err == jsontext.ErrDuplicateName </span>{
+                <span class="cov8" title="1">return fmt.Errorf("duplicate field %q", serr.JSONPointer.LastToken())
+</span>        }
+        <span class="cov8" title="1">serr, ok := errors.AsType[*json.SemanticError](err)
+        switch </span>{
+        case !ok:
+                <span class="cov8" title="1">return errors.New("request body is not valid JSON")</span>
+        case serr.Err == json.ErrUnknownName:
+                <span class="cov8" title="1">return fmt.Errorf("unknown field %q", serr.JSONPointer.LastToken())</span>
+        case serr.JSONPointer == "":
+                <span class="cov8" title="1">return errors.New("request body must be a JSON object")</span>
+        }
+        <span class="cov8" title="1">return fmt.Errorf("%s must be a string", serr.JSONPointer.LastToken())</span>
+}
+
+// ansMessage describes why ans was rejected.
+func ansMessage(err error) string {
+        <span class="cov8" title="1">var outOfRange coded // overflow or underflow
+        switch </span>{
+        case errors.Is(err, eval.ErrTooManyDigits):
+                <span class="cov8" title="1">return "invalid ans: " + err.Error()</span>
+        case errors.As(err, &amp;outOfRange):
+                <span class="cov8" title="1">return "invalid ans: outside the exponent range"</span>
+        }
+        <span class="cov8" title="1">return "invalid ans: not a valid number"</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package arith
+
+import (
+        "errors"
+        "fmt"
+
+        "github.com/cockroachdb/apd/v3"
+)
+
+// Precision is the number of significant digits every operation rounds its
+// result to. It matches IEEE 754 decimal128.
+const Precision = 34
+
+// The exponent range also matches decimal128. Results outside it are reported
+// as overflow or underflow instead of growing without bound.
+const (
+        maxExponent = 6144
+        minExponent = -6143
+)
+
+// ctx is shared by all operations. An apd context is safe for concurrent use
+// as long as it is not modified. Ties round to even, the IEEE 754 default.
+var ctx = &amp;apd.Context{
+        Precision:   Precision,
+        MaxExponent: maxExponent,
+        MinExponent: minExponent,
+        Traps:       apd.DefaultTraps,
+        Rounding:    apd.RoundHalfEven,
+}
+
+// parseCtx keeps every digit of its input (precision 0 disables rounding) but
+// still enforces the exponent range. Rounding inputs before an operation would
+// make results depend on digits that were already thrown away.
+//
+// It sets no traps: when a trapped parse fails, apd drops the condition flags,
+// and Parse needs them to tell overflow from underflow.
+var parseCtx = &amp;apd.Context{
+        MaxExponent: maxExponent,
+        MinExponent: minExponent,
+        Rounding:    apd.RoundHalfEven,
+}
+
+// ErrInvalidNumber is returned by Parse for strings that are not finite
+// decimal numbers.
+var ErrInvalidNumber = errors.New("invalid number")
+
+// Parse converts a decimal string such as "12.5", "-3" or "1.5E+40" into a
+// Decimal. All digits are kept; only operation results are rounded. A
+// malformed string returns ErrInvalidNumber, and a number outside the exponent
+// range returns a MathError of kind Overflow or Underflow.
+func Parse(s string) (*apd.Decimal, error) {
+        <span class="cov8" title="1">d, cond, err := parseCtx.NewFromString(s)
+        if err == nil &amp;&amp; cond&amp;(apd.Overflow|apd.Underflow|apd.Subnormal) != 0 </span>{
+                <span class="cov8" title="1">return nil, fromCondition(cond, nil)
+</span>        }
+        <span class="cov8" title="1">if err != nil || d.Form != apd.Finite </span>{
+                <span class="cov8" title="1">return nil, fmt.Errorf("%w: %q", ErrInvalidNumber, s)
+</span>        }
+        <span class="cov8" title="1">return d, nil</span>
+}
+
+// Neg returns -x. Negation is exact, so unlike the other operations it does
+// not round, and it never returns negative zero.
+func Neg(x *apd.Decimal) *apd.Decimal {
+        <span class="cov8" title="1">return new(apd.Decimal).Neg(x)
+</span>}
+
+// Round rounds x to Precision significant digits, ties to even. Operation
+// results are already rounded; Round is for values that skipped every
+// operation, such as a long literal. Rounding up can overflow.
+func Round(x *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">d := new(apd.Decimal)
+        if cond, err := ctx.Round(d, x); err != nil </span>{
+                <span class="cov8" title="1">return nil, fromCondition(cond, err)
+</span>        }
+        <span class="cov8" title="1">return d, nil</span>
+}
+
+// Add returns x + y.
+func Add(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">return apply(ctx.Add, x, y)
+</span>}
+
+// Sub returns x - y.
+func Sub(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">return apply(ctx.Sub, x, y)
+</span>}
+
+// Mul returns x * y.
+func Mul(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">return apply(ctx.Mul, x, y)
+</span>}
+
+// Div returns x / y. Any division by zero, including 0/0, is reported as
+// DivisionByZero.
+func Div(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">return apply(ctx.Quo, x, y)
+</span>}
+
+// Pow returns x raised to the power y. 0^0 is 1 and zero raised to a negative
+// power is DivisionByZero. A negative x with a non-integer y is a DomainError.
+// Non-integer powers are computed through ln/exp and are approximate.
+func Pow(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">if x.IsZero() </span>{
+                <span class="cov8" title="1">switch y.Sign() </span>{
+                case 0:
+                        // apd follows the GDA spec, where 0^0 is undefined.
+                        <span class="cov8" title="1">return apd.New(1, 0), nil</span>
+                case -1:
+                        // apd returns Infinity here without raising a condition.
+                        <span class="cov8" title="1">return nil, &amp;MathError{Kind: DivisionByZero}</span>
+                }
+        }
+        <span class="cov8" title="1">d, err := pow(x, y)
+        var mathErr *MathError
+        if errors.As(err, &amp;mathErr) &amp;&amp; (mathErr.Kind == Overflow || mathErr.Kind == Underflow) </span>{
+                <span class="cov8" title="1">mathErr.Kind = powRangeKind(x, y)
+</span>        }
+        <span class="cov8" title="1">return d, err</span>
+}
+
+// powCtx computes the two parts of a split power (see pow). It has ten guard
+// digits and apd's full exponent range, so the parts are rounded and checked
+// against the exponent range only once more, in their product.
+var powCtx = &amp;apd.Context{
+        Precision:   Precision + 10,
+        MaxExponent: apd.MaxExponent,
+        MinExponent: apd.MinExponent,
+        Traps:       apd.DefaultTraps,
+        Rounding:    apd.RoundHalfEven,
+}
+
+// pow computes x^y. For a non-integer y, apd computes ln and exp at a
+// precision above the number of digits in x. With a long base, such as a
+// base of thousands of digits, that takes half a second, and from about 2700
+// digits apd gives up with an error that has no condition. A base with more
+// digits than powCtx keeps is therefore split: x^y = x^int(y) * x^frac(y).
+//   - The integer power multiplies with every digit of x.
+//   - The fractional power uses x rounded to powCtx precision. Since
+//     |frac(y)| &lt; 1, its relative error is below that of the rounded x.
+//
+// Both parts lie on the same side of 1, and x^y is further from 1 than either
+// of them. A part that leaves apd's exponent range therefore means that x^y
+// leaves the narrower range of ctx too.
+func pow(x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">var integ, frac apd.Decimal
+        y.Modf(&amp;integ, &amp;frac)
+        if frac.IsZero() || x.NumDigits() &lt;= int64(powCtx.Precision) </span>{
+                <span class="cov8" title="1">return apply(ctx.Pow, x, y)
+</span>        }
+        // Rounding cannot fail: x lies within the exponent range of ctx, far
+        // inside that of powCtx.
+        <span class="cov8" title="1">var short apd.Decimal
+        powCtx.Round(&amp;short, x)
+</span>        // The fractional part goes first, so a negative base is a DomainError
+        // even when the integer part alone would overflow.
+        <span class="cov8" title="1">fracPow, err := apply(powCtx.Pow, &amp;short, &amp;frac)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">intPow, err := apply(powCtx.Pow, x, &amp;integ)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">return Mul(intPow, fracPow)</span>
+}
+
+var one = apd.New(1, 0)
+
+// powRangeKind tells whether an out-of-range x^y is too large or too small.
+// apd cannot be trusted here: for a negative exponent it computes the positive
+// power first and only turns overflow into underflow, never the reverse, so
+// 0.5^-1E+100 comes back as underflow. |x|^y grows without bound when |x| &gt; 1
+// and y &gt; 0, or when |x| &lt; 1 and y &lt; 0.
+func powRangeKind(x, y *apd.Decimal) Kind {
+        <span class="cov8" title="1">var abs apd.Decimal
+        abs.Abs(x)
+        if (abs.Cmp(one) &gt; 0) == (y.Sign() &gt; 0) </span>{
+                <span class="cov8" title="1">return Overflow
+</span>        }
+        <span class="cov8" title="1">return Underflow</span>
+}
+
+// Sqrt returns the square root of x. A negative x is a DomainError.
+func Sqrt(x *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">d := new(apd.Decimal)
+        if cond, err := ctx.Sqrt(d, x); err != nil </span>{
+                <span class="cov8" title="1">return nil, fromCondition(cond, err)
+</span>        }
+        <span class="cov8" title="1">return d, nil</span>
+}
+
+var hundred = apd.New(100, 0)
+
+// Percent returns x / 100, the value of "x%" on its own or after * and /.
+func Percent(x *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">return Div(x, hundred)
+</span>}
+
+// PercentOf returns pct percent of base (base * pct / 100). It gives "a + b%"
+// its phone-calculator meaning: a + PercentOf(a, b).
+func PercentOf(base, pct *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">p, err := Mul(base, pct)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">return Div(p, hundred)</span>
+}
+
+// apply runs a binary apd operation into a new Decimal and translates a
+// trapped condition into a MathError.
+func apply(op func(d, x, y *apd.Decimal) (apd.Condition, error), x, y *apd.Decimal) (*apd.Decimal, error) {
+        <span class="cov8" title="1">d := new(apd.Decimal)
+        if cond, err := op(d, x, y); err != nil </span>{
+                <span class="cov8" title="1">return nil, fromCondition(cond, err)
+</span>        }
+        <span class="cov8" title="1">return d, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package arith
+
+import (
+        "fmt"
+
+        "github.com/cockroachdb/apd/v3"
+)
+
+// Kind classifies a MathError. Each kind has a stable error code that clients
+// can rely on.
+type Kind int
+
+const (
+        DivisionByZero Kind = iota + 1
+        DomainError
+        Overflow
+        Underflow
+)
+
+var kinds = [...]struct{ code, message string }{
+        DivisionByZero: {"division_by_zero", "division by zero"},
+        DomainError:    {"domain_error", "result is not a real number"},
+        Overflow:       {"overflow", "result is too large"},
+        Underflow:      {"underflow", "result is too close to zero"},
+}
+
+// Code returns the machine-readable error code of k, such as
+// "division_by_zero".
+func (k Kind) Code() string {
+        <span class="cov8" title="1">return kinds[k].code
+</span>}
+
+// MathError reports a result that is mathematically undefined or cannot be
+// represented.
+type MathError struct {
+        Kind Kind
+}
+
+func (e *MathError) Error() string {
+        <span class="cov8" title="1">return kinds[e.Kind].message
+</span>}
+
+// Code returns the error code of e's kind.
+func (e *MathError) Code() string {
+        <span class="cov8" title="1">return e.Kind.Code()
+</span>}
+
+// fromCondition translates the flags of a trapped apd operation into a
+// MathError. Errors without a known flag are wrapped and returned as is.
+func fromCondition(cond apd.Condition, err error) error {
+        <span class="cov8" title="1">switch </span>{
+        case cond&amp;(apd.DivisionByZero|apd.DivisionUndefined) != 0:
+                <span class="cov8" title="1">return &amp;MathError{Kind: DivisionByZero}</span>
+        case cond&amp;(apd.Overflow|apd.SystemOverflow) != 0:
+                <span class="cov8" title="1">return &amp;MathError{Kind: Overflow}</span>
+        case cond&amp;(apd.Underflow|apd.Subnormal|apd.SystemUnderflow) != 0:
+                <span class="cov8" title="1">return &amp;MathError{Kind: Underflow}</span>
+        case cond&amp;(apd.InvalidOperation|apd.DivisionImpossible) != 0:
+                <span class="cov8" title="1">return &amp;MathError{Kind: DomainError}</span>
+        }
+        <span class="cov8" title="1">return fmt.Errorf("arith: %w", err)</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package arith
+
+import "github.com/cockroachdb/apd/v3"
+
+// Results whose adjusted exponent (the exponent in scientific notation) lies
+// in this range are written in plain notation, others in scientific notation.
+// The upper bound lets every integer of up to Precision digits print in full.
+const (
+        plainMinExponent = -7
+        plainMaxExponent = Precision - 1
+)
+
+// Format returns the canonical string form of d: trailing zeros removed,
+// negative zero written as "0", plain notation for moderate magnitudes and
+// scientific notation such as "1.5E+40" otherwise. Parse accepts every string
+// Format produces.
+func Format(d *apd.Decimal) string {
+        <span class="cov8" title="1">var r apd.Decimal
+        r.Reduce(d) // also turns -0 into 0
+        adj := int64(r.Exponent) + r.NumDigits() - 1
+        if adj &gt;= plainMinExponent &amp;&amp; adj &lt;= plainMaxExponent </span>{
+                <span class="cov8" title="1">return r.Text('f')
+</span>        }
+        <span class="cov8" title="1">return r.Text('E')</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package arith
+
+import "github.com/cockroachdb/apd/v3"
+
+// Func is a function that expressions can call by name, such as sqrt.
+type Func struct {
+        // Arity is the exact number of arguments the function takes.
+        Arity int
+        // Call computes the result. Callers must pass exactly Arity arguments.
+        Call func(args []*apd.Decimal) (*apd.Decimal, error)
+}
+
+// functions holds every callable function under the name used in expressions.
+// Names are case-sensitive. Adding a function only needs an entry here; the
+// parser accepts any name and the evaluator looks it up.
+var functions = map[string]Func{
+        "sqrt": {Arity: 1, Call: func(args []*apd.Decimal) (*apd.Decimal, error) {
+                <span class="cov8" title="1">return Sqrt(args[0])
+</span>        }},
+}
+
+// Lookup returns the function registered under name.
+func Lookup(name string) (Func, bool) {
+        <span class="cov8" title="1">f, ok := functions[name]
+        return f, ok
+</span>}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package eval
+
+import (
+        "errors"
+        "fmt"
+
+        "calculator/internal/arith"
+        "calculator/internal/parser"
+)
+
+// Error is a problem found while evaluating a parsed expression: an unknown
+// name, a wrong number of arguments, or a math error such as division by zero.
+type Error struct {
+        code   string
+        msg    string
+        offset int
+        err    error // the *arith.MathError behind a math error
+}
+
+func (e *Error) Error() string {
+        <span class="cov8" title="1">return e.msg
+</span>}
+
+// Code returns the error code, such as "unknown_function" or
+// "division_by_zero".
+func (e *Error) Code() string {
+        <span class="cov8" title="1">return e.code
+</span>}
+
+// Pos returns the 0-based index of the name, operator or function that caused
+// the error.
+func (e *Error) Pos() int {
+        <span class="cov8" title="1">return e.offset
+</span>}
+
+// Unwrap returns the *arith.MathError behind a math error, or nil.
+func (e *Error) Unwrap() error {
+        <span class="cov8" title="1">return e.err
+</span>}
+
+// The codes of the errors the evaluator finds itself.
+const (
+        codeUnknownVariable    = "unknown_variable"
+        codeUnknownFunction    = "unknown_function"
+        codeWrongArgumentCount = "wrong_argument_count"
+)
+
+// Codes returns every error code Evaluate can return: the parser's, the
+// evaluator's own and those of math errors. The API layer maps each one to an
+// HTTP status.
+func Codes() []string {
+        <span class="cov8" title="1">return []string{
+                (&amp;parser.SyntaxError{}).Code(),
+                (&amp;parser.NestingError{}).Code(),
+                codeUnknownVariable,
+                codeUnknownFunction,
+                codeWrongArgumentCount,
+                arith.DivisionByZero.Code(),
+                arith.DomainError.Code(),
+                arith.Overflow.Code(),
+                arith.Underflow.Code(),
+</span>        }
+}
+
+func unknownVariable(n *parser.Variable) error {
+        <span class="cov8" title="1">return &amp;Error{code: codeUnknownVariable, msg: fmt.Sprintf("unknown variable '%s'", n.Name), offset: n.Pos}
+</span>}
+
+func unknownFunction(n *parser.Call) error {
+        <span class="cov8" title="1">return &amp;Error{code: codeUnknownFunction, msg: fmt.Sprintf("unknown function '%s'", n.Name), offset: n.Pos}
+</span>}
+
+func wrongArgumentCount(n *parser.Call, want int) error {
+        <span class="cov8" title="1">msg := fmt.Sprintf("wrong number of arguments for %s: want %d, got %d", n.Name, want, len(n.Args))
+        return &amp;Error{code: codeWrongArgumentCount, msg: msg, offset: n.Pos}
+</span>}
+
+// at attaches pos to an error from arith. It returns nil when err is nil, so a
+// result can be passed through as return d, at(pos, err).
+func at(pos int, err error) error {
+        <span class="cov8" title="1">var mathErr *arith.MathError
+        if !errors.As(err, &amp;mathErr) </span>{
+                <span class="cov8" title="1">return err // nil, or an unexpected error without a code
+</span>        }
+        <span class="cov8" title="1">return &amp;Error{code: mathErr.Code(), msg: mathErr.Error(), offset: pos, err: err}</span>
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package eval
+
+import (
+        "fmt"
+
+        "github.com/cockroachdb/apd/v3"
+
+        "calculator/internal/arith"
+        "calculator/internal/parser"
+)
+
+// Evaluate parses expression and computes its value. vars holds the values of
+// variables such as Ans; names are case-sensitive. The result is rounded to
+// arith.Precision significant digits, even when no operation was applied (a
+// long literal, or its negation).
+//
+// Every error has a code and the position of the input that caused it:
+//   - Malformed input returns the parser's errors.
+//   - Unknown names and wrong argument counts are checked before anything is
+//     computed, so an invalid expression is reported as such even when
+//     evaluating it would also divide by zero.
+//   - Math errors point at the operator or function that failed.
+func Evaluate(expression string, vars map[string]Value) (Value, error) {
+        <span class="cov8" title="1">root, err := parser.Parse(expression)
+        if err != nil </span>{
+                <span class="cov8" title="1">return Value{}, err
+</span>        }
+        <span class="cov8" title="1">e := &amp;evaluator{vars: vars}
+        if err := e.check(root); err != nil </span>{
+                <span class="cov8" title="1">return Value{}, err
+</span>        }
+        <span class="cov8" title="1">d, err := e.eval(root)
+        if err != nil </span>{
+                <span class="cov8" title="1">return Value{}, err
+</span>        }
+        <span class="cov8" title="1">if d, err = arith.Round(d); err != nil </span>{
+                <span class="cov8" title="1">return Value{}, at(root.Position(), err)
+</span>        }
+        <span class="cov8" title="1">return Value{d}, nil</span>
+}
+
+type evaluator struct {
+        vars map[string]Value
+}
+
+// check returns the first unknown name or wrong argument count in n, in input
+// order.
+func (e *evaluator) check(n parser.Node) error {
+        <span class="cov8" title="1">switch n := n.(type) </span>{
+        case *parser.Variable:
+                <span class="cov8" title="1">if _, ok := e.vars[n.Name]; !ok </span>{
+                        <span class="cov8" title="1">return unknownVariable(n)
+</span>                }
+        case *parser.Call:
+                <span class="cov8" title="1">f, ok := arith.Lookup(n.Name)
+                if !ok </span>{
+                        <span class="cov8" title="1">return unknownFunction(n)
+</span>                }
+                <span class="cov8" title="1">if len(n.Args) != f.Arity </span>{
+                        <span class="cov8" title="1">return wrongArgumentCount(n, f.Arity)
+</span>                }
+                <span class="cov8" title="1">for _, arg := range n.Args </span>{
+                        <span class="cov8" title="1">if err := e.check(arg); err != nil </span>{
+                                <span class="cov8" title="1">return err
+</span>                        }
+                }
+        case *parser.Unary:
+                <span class="cov8" title="1">return e.check(n.X)</span>
+        case *parser.Binary:
+                <span class="cov8" title="1">if err := e.check(n.L); err != nil </span>{
+                        <span class="cov8" title="1">return err
+</span>                }
+                <span class="cov8" title="1">return e.check(n.R)</span>
+        case *parser.Percent:
+                <span class="cov8" title="1">return e.check(n.X)</span>
+        case *parser.Group:
+                <span class="cov8" title="1">return e.check(n.Inner)</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// binaryOps maps each binary operator the parser produces to its operation.
+var binaryOps = map[string]func(x, y *apd.Decimal) (*apd.Decimal, error){
+        "+": arith.Add,
+        "-": arith.Sub,
+        "*": arith.Mul,
+        "/": arith.Div,
+        "^": arith.Pow,
+}
+
+// eval computes the value of n, which must have passed check. Operands are
+// evaluated left to right, and the first error is returned.
+func (e *evaluator) eval(n parser.Node) (*apd.Decimal, error) {
+        <span class="cov8" title="1">switch n := n.(type) </span>{
+        case *parser.Number:
+                <span class="cov8" title="1">d, err := arith.Parse(n.Text)
+                return d, at(n.Pos, err)</span>
+        case *parser.Variable:
+                <span class="cov8" title="1">return e.vars[n.Name].decimal(), nil</span>
+        case *parser.Call:
+                <span class="cov8" title="1">return e.call(n)</span>
+        case *parser.Unary:
+                // The only prefix operator is minus.
+                <span class="cov8" title="1">x, err := e.eval(n.X)
+                if err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">return arith.Neg(x), nil</span>
+        case *parser.Binary:
+                <span class="cov8" title="1">return e.binary(n)</span>
+        case *parser.Percent:
+                <span class="cov8" title="1">x, err := e.eval(n.X)
+                if err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">d, err := arith.Percent(x)
+                return d, at(n.Pos, err)</span>
+        case *parser.Group:
+                <span class="cov8" title="1">return e.eval(n.Inner)</span>
+        }
+        <span class="cov8" title="1">return nil, fmt.Errorf("eval: unexpected node %T", n)</span>
+}
+
+func (e *evaluator) call(n *parser.Call) (*apd.Decimal, error) {
+        <span class="cov8" title="1">f, _ := arith.Lookup(n.Name) // check has verified the name and the arity
+        args := make([]*apd.Decimal, len(n.Args))
+        for i, arg := range n.Args </span>{
+                <span class="cov8" title="1">d, err := e.eval(arg)
+                if err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">args[i] = d</span>
+        }
+        <span class="cov8" title="1">d, err := f.Call(args)
+        return d, at(n.Pos, err)</span>
+}
+
+// binary applies a binary operator. For a + b% and a - b% it applies the
+// percent rule: b% means b percent of a, so 200 + 10% is 220.
+func (e *evaluator) binary(n *parser.Binary) (*apd.Decimal, error) {
+        <span class="cov8" title="1">l, err := e.eval(n.L)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">var r *apd.Decimal
+        if pct, negated, ok := percentOperand(n.R); ok &amp;&amp; (n.Op == "+" || n.Op == "-") </span>{
+                <span class="cov8" title="1">r, err = e.percentOf(l, pct, negated)
+</span>        } else {
+                <span class="cov8" title="1">r, err = e.eval(n.R)
+</span>        }
+        <span class="cov8" title="1">if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">d, err := binaryOps[n.Op](l, r)
+        return d, at(n.Pos, err)</span>
+}
+
+// percentOperand reports whether n is a Percent node behind any number of
+// unary minus signs, and whether an odd number of them negates it. A Group is
+// not looked into, which is how parentheses block the percent rule.
+func percentOperand(n parser.Node) (pct *parser.Percent, negated, ok bool) {
+        <span class="cov8" title="1">for </span>{
+                <span class="cov8" title="1">switch x := n.(type) </span>{
+                case *parser.Percent:
+                        <span class="cov8" title="1">return x, negated, true</span>
+                case *parser.Unary:
+                        <span class="cov8" title="1">negated = !negated
+                        n = x.X</span>
+                default:
+                        <span class="cov8" title="1">return nil, false, false</span>
+                }
+        }
+}
+
+// percentOf returns b percent of a, where pct is b% and negated says whether
+// minus signs in front of it flip its sign. An error points at the "%".
+func (e *evaluator) percentOf(a *apd.Decimal, pct *parser.Percent, negated bool) (*apd.Decimal, error) {
+        <span class="cov8" title="1">b, err := e.eval(pct.X)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">if negated </span>{
+                <span class="cov8" title="1">b = arith.Neg(b)
+</span>        }
+        <span class="cov8" title="1">d, err := arith.PercentOf(a, b)
+        return d, at(pct.Pos, err)</span>
+}
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package eval
+
+import (
+        "fmt"
+
+        "github.com/cockroachdb/apd/v3"
+
+        "calculator/internal/arith"
+)
+
+// Value is an exact decimal number: the result of Evaluate or the value of a
+// variable such as Ans. The zero Value is 0.
+type Value struct {
+        d *apd.Decimal
+}
+
+// ErrTooManyDigits is returned by ParseValue for a number with more than
+// arith.Precision digits.
+var ErrTooManyDigits = fmt.Errorf("number has more than %d digits", arith.Precision)
+
+// ParseValue parses an earlier result, such as the value of Ans, and keeps
+// every digit. Plain and scientific notation are both accepted ("0.5",
+// "1.5E+40"), so every string that String returns parses back to the same
+// value.
+//
+// No result has more than arith.Precision digits, so a longer number returns
+// ErrTooManyDigits instead of making every operation on it work with all its
+// digits. Digits are counted on the parsed number: leading zeros do not count,
+// trailing zeros do ("1.50" has three).
+func ParseValue(s string) (Value, error) {
+        <span class="cov8" title="1">d, err := arith.Parse(s)
+        if err != nil </span>{
+                <span class="cov8" title="1">return Value{}, err
+</span>        }
+        <span class="cov8" title="1">if d.NumDigits() &gt; arith.Precision </span>{
+                <span class="cov8" title="1">return Value{}, ErrTooManyDigits
+</span>        }
+        <span class="cov8" title="1">return Value{d}, nil</span>
+}
+
+// String returns v in canonical form, as arith.Format writes it: "98",
+// "0.5", "1.5E+40".
+func (v Value) String() string {
+        <span class="cov8" title="1">return arith.Format(v.decimal())
+</span>}
+
+func (v Value) decimal() *apd.Decimal {
+        <span class="cov8" title="1">if v.d == nil </span>{
+                <span class="cov8" title="1">return new(apd.Decimal)
+</span>        }
+        <span class="cov8" title="1">return v.d</span>
+}
+</pre>
+		
+		<pre class="file" id="file10" style="display: none">package parser
+
+import (
+        "fmt"
+        "strings"
+)
+
+// Node is an expression in the syntax tree: a *Number, *Variable, *Call,
+// *Unary, *Binary, *Percent or *Group.
+type Node interface {
+        // Position returns the index in the input of the token that created the
+        // node, which is also its Pos field.
+        Position() int
+        // String prints the subtree as a fully parenthesized S-expression, such
+        // as (* 2 (^ (group (+ 3 4)) 2)).
+        String() string
+}
+
+// Number is a number literal, kept exactly as written.
+type Number struct {
+        Text string
+        Pos  int
+}
+
+// Variable is a name that is not followed by "(", such as Ans. The evaluator
+// resolves it.
+type Variable struct {
+        Name string
+        Pos  int
+}
+
+// Call is a function call such as sqrt(9). The parser accepts any name; the
+// evaluator looks it up and checks the number of arguments.
+type Call struct {
+        Name string
+        Args []Node
+        Pos  int // position of the name
+}
+
+// Unary is a prefix operator applied to X. The only one is "-".
+type Unary struct {
+        Op  string
+        X   Node
+        Pos int // position of the operator
+}
+
+// Binary is an infix operator: "+", "-", "*", "/" or "^".
+type Binary struct {
+        Op   string
+        L, R Node
+        Pos  int // position of the operator
+}
+
+// Percent is a postfix "%" applied to X. Its value depends on where it appears
+// (200 + 10% is 220, 200 * 10% is 20), so the evaluator applies the percent
+// rule, not the parser.
+type Percent struct {
+        X   Node
+        Pos int // position of "%"
+}
+
+// Group is a parenthesized expression. It is a node of its own because
+// parentheses change how percent is evaluated: 100 + (10%) is not 100 + 10%.
+type Group struct {
+        Inner Node
+        Pos   int // position of "("
+}
+
+func (n *Number) Position() int   { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Variable) Position() int { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Call) Position() int     { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Unary) Position() int    { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Binary) Position() int   { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Percent) Position() int  { <span class="cov8" title="1">return n.Pos }</span>
+func (n *Group) Position() int    { <span class="cov8" title="1">return n.Pos }</span>
+
+func (n *Number) String() string {
+        <span class="cov8" title="1">return n.Text
+</span>}
+
+func (n *Variable) String() string {
+        <span class="cov8" title="1">return n.Name
+</span>}
+
+// String prints the call as (call name args...). The "call" tag keeps a
+// function named group apart from a Group node.
+func (n *Call) String() string {
+        <span class="cov8" title="1">parts := []string{"call", n.Name}
+        for _, arg := range n.Args </span>{
+                <span class="cov8" title="1">parts = append(parts, arg.String())
+</span>        }
+        <span class="cov8" title="1">return "(" + strings.Join(parts, " ") + ")"</span>
+}
+
+func (n *Unary) String() string {
+        <span class="cov8" title="1">return fmt.Sprintf("(%s %s)", n.Op, n.X)
+</span>}
+
+func (n *Binary) String() string {
+        <span class="cov8" title="1">return fmt.Sprintf("(%s %s %s)", n.Op, n.L, n.R)
+</span>}
+
+func (n *Percent) String() string {
+        <span class="cov8" title="1">return fmt.Sprintf("(%% %s)", n.X)
+</span>}
+
+func (n *Group) String() string {
+        <span class="cov8" title="1">return fmt.Sprintf("(group %s)", n.Inner)
+</span>}
+</pre>
+		
+		<pre class="file" id="file11" style="display: none">package parser
+
+import "fmt"
+
+// SyntaxError reports input that is not a valid expression, together with the
+// position of the offending character.
+type SyntaxError struct {
+        Msg    string
+        Offset int // 0-based index of the offending character in the input
+}
+
+func (e *SyntaxError) Error() string {
+        <span class="cov8" title="1">return e.Msg
+</span>}
+
+// Code returns the error code "syntax_error".
+func (e *SyntaxError) Code() string {
+        <span class="cov8" title="1">return "syntax_error"
+</span>}
+
+// Pos returns the 0-based index of the offending character in the input.
+func (e *SyntaxError) Pos() int {
+        <span class="cov8" title="1">return e.Offset
+</span>}
+
+// NestingError reports parentheses nested deeper than MaxDepth.
+type NestingError struct {
+        Offset int // 0-based index of the first "(" beyond the limit
+}
+
+func (e *NestingError) Error() string {
+        <span class="cov8" title="1">return fmt.Sprintf("parentheses are nested more than %d levels deep", MaxDepth)
+</span>}
+
+// Code returns the error code "nesting_too_deep".
+func (e *NestingError) Code() string {
+        <span class="cov8" title="1">return "nesting_too_deep"
+</span>}
+
+// Pos returns the 0-based index of the first "(" beyond the limit.
+func (e *NestingError) Pos() int {
+        <span class="cov8" title="1">return e.Offset
+</span>}
+</pre>
+		
+		<pre class="file" id="file12" style="display: none">package parser
+
+import (
+        "fmt"
+        "unicode/utf8"
+)
+
+// tokenKind identifies what a token is.
+type tokenKind int
+
+const (
+        tokEOF     tokenKind = iota
+        tokNumber            // 12, 3.5, .5
+        tokIdent             // sqrt, Ans
+        tokPlus              // +
+        tokMinus             // -
+        tokStar              // *
+        tokSlash             // /
+        tokCaret             // ^
+        tokPercent           // %
+        tokLParen            // (
+        tokRParen            // )
+        tokComma             // ,
+)
+
+// symbols maps each single-character token to its kind.
+var symbols = map[byte]tokenKind{
+        '+': tokPlus,
+        '-': tokMinus,
+        '*': tokStar,
+        '/': tokSlash,
+        '^': tokCaret,
+        '%': tokPercent,
+        '(': tokLParen,
+        ')': tokRParen,
+        ',': tokComma,
+}
+
+// token is one lexical unit of an expression.
+type token struct {
+        kind tokenKind
+        text string // the token as written in the input; empty for tokEOF
+        pos  int    // index of the token's first character in the input
+}
+
+// lexer splits an expression into tokens on demand: the parser pulls one token
+// at a time and stops at the first error, whether lexical or syntactic.
+//
+// Only ASCII is accepted. The lexer stops at the first non-ASCII character, so
+// every position it reports is a byte index, a rune index and a JavaScript
+// string index at the same time.
+type lexer struct {
+        src string
+        pos int // index of the next unread byte
+}
+
+// next returns the next token, skipping whitespace. At the end of the input it
+// returns a tokEOF token positioned at len(src), on every call.
+func (l *lexer) next() (token, error) {
+        <span class="cov8" title="1">l.skip(isSpace)
+        start := l.pos
+        if start == len(l.src) </span>{
+                <span class="cov8" title="1">return token{kind: tokEOF, pos: start}, nil
+</span>        }
+        <span class="cov8" title="1">c := l.src[start]
+        switch </span>{
+        case isDigit(c) || c == '.':
+                <span class="cov8" title="1">return l.number()</span>
+        case isIdentStart(c):
+                <span class="cov8" title="1">l.skip(isIdentPart)
+                return token{kind: tokIdent, text: l.src[start:l.pos], pos: start}, nil</span>
+        }
+        <span class="cov8" title="1">if kind, ok := symbols[c]; ok </span>{
+                <span class="cov8" title="1">l.pos++
+                return token{kind: kind, text: l.src[start:l.pos], pos: start}, nil
+</span>        }
+        <span class="cov8" title="1">r, _ := utf8.DecodeRuneInString(l.src[start:])
+        return token{}, &amp;SyntaxError{Msg: fmt.Sprintf("unexpected character %q", r), Offset: start}</span>
+}
+
+// number scans a literal of the form digits ["." digits] or "." digits.
+// Scientific notation is not part of the grammar: in "1e5" the number ends
+// after "1" and "e5" is lexed as an identifier, which the parser rejects.
+func (l *lexer) number() (token, error) {
+        <span class="cov8" title="1">start := l.pos
+        l.skip(isDigit)
+        if l.peek() == '.' </span>{
+                <span class="cov8" title="1">dot := l.pos
+                l.pos++
+                if l.skip(isDigit) == 0 </span>{
+                        <span class="cov8" title="1">return token{}, &amp;SyntaxError{Msg: "decimal point must be followed by a digit", Offset: dot}
+</span>                }
+        }
+        <span class="cov8" title="1">if l.peek() == '.' </span>{
+                <span class="cov8" title="1">return token{}, &amp;SyntaxError{Msg: "number has more than one decimal point", Offset: l.pos}
+</span>        }
+        <span class="cov8" title="1">return token{kind: tokNumber, text: l.src[start:l.pos], pos: start}, nil</span>
+}
+
+// peek returns the next unread byte, or 0 at the end of the input.
+func (l *lexer) peek() byte {
+        <span class="cov8" title="1">if l.pos &lt; len(l.src) </span>{
+                <span class="cov8" title="1">return l.src[l.pos]
+</span>        }
+        <span class="cov8" title="1">return 0</span>
+}
+
+// skip advances past the bytes that satisfy ok and reports how many it passed.
+func (l *lexer) skip(ok func(byte) bool) int {
+        <span class="cov8" title="1">start := l.pos
+        for l.pos &lt; len(l.src) &amp;&amp; ok(l.src[l.pos]) </span>{
+                <span class="cov8" title="1">l.pos++
+</span>        }
+        <span class="cov8" title="1">return l.pos - start</span>
+}
+
+func isSpace(c byte) bool {
+        <span class="cov8" title="1">return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+</span>}
+
+func isDigit(c byte) bool {
+        <span class="cov8" title="1">return '0' &lt;= c &amp;&amp; c &lt;= '9'
+</span>}
+
+func isIdentStart(c byte) bool {
+        <span class="cov8" title="1">return 'a' &lt;= c &amp;&amp; c &lt;= 'z' || 'A' &lt;= c &amp;&amp; c &lt;= 'Z' || c == '_'
+</span>}
+
+func isIdentPart(c byte) bool {
+        <span class="cov8" title="1">return isIdentStart(c) || isDigit(c)
+</span>}
+</pre>
+		
+		<pre class="file" id="file13" style="display: none">package parser
+
+import "fmt"
+
+// MaxDepth is the most parentheses, from groups and function calls, that can
+// be open at once.
+const MaxDepth = 100
+
+// The precedence table. An operator with a higher power binds tighter.
+//
+//        power  operator  associativity
+//        1      + -       left
+//        2      * /       left
+//        3      unary -   prefix
+//        4      ^         right
+//        5      %         postfix
+var binaryOps = map[tokenKind]struct {
+        power      int
+        rightAssoc bool
+}{
+        tokPlus:  {power: 1},
+        tokMinus: {power: 1},
+        tokStar:  {power: 2},
+        tokSlash: {power: 2},
+        tokCaret: {power: 4, rightAssoc: true},
+}
+
+const (
+        // unaryPower sits between * and ^, so -2^2 is -(2^2) while -2*3 is (-2)*3.
+        unaryPower = 3
+        // percentPower is the tightest, so 2^10% is 2^(10%) and -10% is -(10%).
+        percentPower = 5
+)
+
+// Parse turns an expression into a syntax tree. Malformed input returns a
+// *SyntaxError, and parentheses nested deeper than MaxDepth return a
+// *NestingError. Both report the position of the offending character.
+func Parse(src string) (Node, error) {
+        <span class="cov8" title="1">p := &amp;parser{lex: lexer{src: src}}
+        if err := p.advance(); err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">if p.tok.kind == tokEOF </span>{
+                <span class="cov8" title="1">return nil, &amp;SyntaxError{Msg: "empty expression", Offset: p.tok.pos}
+</span>        }
+        <span class="cov8" title="1">n, err := p.expr(0)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">if p.tok.kind != tokEOF </span>{
+                <span class="cov8" title="1">return nil, p.unexpected()
+</span>        }
+        <span class="cov8" title="1">return n, nil</span>
+}
+
+type parser struct {
+        lex   lexer
+        tok   token // the current token, not yet consumed
+        depth int   // number of open parentheses around the current token
+}
+
+// advance replaces the current token with the next one from the lexer.
+func (p *parser) advance() error {
+        <span class="cov8" title="1">tok, err := p.lex.next()
+        if err != nil </span>{
+                <span class="cov8" title="1">return err
+</span>        }
+        <span class="cov8" title="1">p.tok = tok
+        return nil</span>
+}
+
+// expr parses an expression whose operators, outside parentheses, all have at
+// least minPower. A looser operator ends the expression and is left for the
+// caller.
+func (p *parser) expr(minPower int) (Node, error) {
+        <span class="cov8" title="1">left, err := p.unary()
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">for </span>{
+                <span class="cov8" title="1">if p.tok.kind == tokPercent &amp;&amp; percentPower &gt;= minPower </span>{
+                        <span class="cov8" title="1">left = &amp;Percent{X: left, Pos: p.tok.pos}
+                        if err := p.advance(); err != nil </span>{
+                                <span class="cov8" title="1">return nil, err
+</span>                        }
+                        <span class="cov8" title="1">continue</span>
+                }
+                <span class="cov8" title="1">op, ok := binaryOps[p.tok.kind]
+                if !ok || op.power &lt; minPower </span>{
+                        <span class="cov8" title="1">return left, nil
+</span>                }
+                <span class="cov8" title="1">opTok := p.tok
+                if err := p.advance(); err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                // The right operand of a left-associative operator only takes tighter
+                // operators, so 1-2-3 is (1-2)-3. A right-associative operator also
+                // takes its own level, so 2^3^2 is 2^(3^2).
+                <span class="cov8" title="1">next := op.power + 1
+                if op.rightAssoc </span>{
+                        <span class="cov8" title="1">next = op.power
+</span>                }
+                <span class="cov8" title="1">right, err := p.expr(next)
+                if err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">left = &amp;Binary{Op: opTok.text, L: left, R: right, Pos: opTok.pos}</span>
+        }
+}
+
+// unary parses an operand with any number of leading minus signs. The operand
+// of a minus sign only takes operators that bind tighter than unaryPower.
+func (p *parser) unary() (Node, error) {
+        <span class="cov8" title="1">if p.tok.kind != tokMinus </span>{
+                <span class="cov8" title="1">return p.primary()
+</span>        }
+        <span class="cov8" title="1">opTok := p.tok
+        if err := p.advance(); err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">x, err := p.expr(unaryPower)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">return &amp;Unary{Op: opTok.text, X: x, Pos: opTok.pos}, nil</span>
+}
+
+// primary parses a number, a variable, a function call or a parenthesized
+// expression.
+func (p *parser) primary() (Node, error) {
+        <span class="cov8" title="1">switch p.tok.kind </span>{
+        case tokNumber:
+                <span class="cov8" title="1">n := &amp;Number{Text: p.tok.text, Pos: p.tok.pos}
+                if err := p.advance(); err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">return n, nil</span>
+        case tokIdent:
+                <span class="cov8" title="1">name := p.tok
+                if err := p.advance(); err != nil </span>{
+                        <span class="cov8" title="1">return nil, err
+</span>                }
+                <span class="cov8" title="1">if p.tok.kind == tokLParen </span>{
+                        <span class="cov8" title="1">return p.call(name)
+</span>                }
+                <span class="cov8" title="1">return &amp;Variable{Name: name.text, Pos: name.pos}, nil</span>
+        case tokLParen:
+                <span class="cov8" title="1">return p.group()</span>
+        }
+        <span class="cov8" title="1">return nil, p.unexpected()</span>
+}
+
+// call parses the argument list that follows the function name. Any name is
+// accepted: the evaluator looks it up, so adding a function does not touch the
+// parser.
+func (p *parser) call(name token) (Node, error) {
+        <span class="cov8" title="1">open, err := p.openParen()
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">var args []Node
+        if p.tok.kind != tokRParen </span>{
+                <span class="cov8" title="1">for </span>{
+                        <span class="cov8" title="1">arg, err := p.expr(0)
+                        if err != nil </span>{
+                                <span class="cov8" title="1">return nil, err
+</span>                        }
+                        <span class="cov8" title="1">args = append(args, arg)
+                        if p.tok.kind != tokComma </span>{
+                                <span class="cov8" title="1">break</span>
+                        }
+                        <span class="cov8" title="1">if err := p.advance(); err != nil </span>{
+                                <span class="cov8" title="1">return nil, err
+</span>                        }
+                }
+        }
+        <span class="cov8" title="1">if err := p.closeParen(open); err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">return &amp;Call{Name: name.text, Args: args, Pos: name.pos}, nil</span>
+}
+
+// group parses "(" expression ")" into a Group node.
+func (p *parser) group() (Node, error) {
+        <span class="cov8" title="1">open, err := p.openParen()
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">inner, err := p.expr(0)
+        if err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">if err := p.closeParen(open); err != nil </span>{
+                <span class="cov8" title="1">return nil, err
+</span>        }
+        <span class="cov8" title="1">return &amp;Group{Inner: inner, Pos: open.pos}, nil</span>
+}
+
+// openParen consumes "(" and enforces MaxDepth. It returns the "(" token for
+// the matching closeParen.
+func (p *parser) openParen() (token, error) {
+        <span class="cov8" title="1">open := p.tok
+        if p.depth == MaxDepth </span>{
+                <span class="cov8" title="1">return token{}, &amp;NestingError{Offset: open.pos}
+</span>        }
+        <span class="cov8" title="1">p.depth++
+        if err := p.advance(); err != nil </span>{
+                <span class="cov8" title="1">return token{}, err
+</span>        }
+        <span class="cov8" title="1">return open, nil</span>
+}
+
+// closeParen consumes the ")" that matches open.
+func (p *parser) closeParen(open token) error {
+        <span class="cov8" title="1">if p.tok.kind != tokRParen </span>{
+                <span class="cov8" title="1">if p.tok.kind == tokEOF </span>{
+                        <span class="cov8" title="1">return &amp;SyntaxError{Msg: "unclosed parenthesis", Offset: open.pos}
+</span>                }
+                <span class="cov8" title="1">return p.unexpected()</span>
+        }
+        <span class="cov8" title="1">p.depth--
+        return p.advance()</span>
+}
+
+// unexpected reports the current token as a syntax error.
+func (p *parser) unexpected() error {
+        <span class="cov8" title="1">if p.tok.kind == tokEOF </span>{
+                <span class="cov8" title="1">return &amp;SyntaxError{Msg: "unexpected end of expression", Offset: p.tok.pos}
+</span>        }
+        <span class="cov8" title="1">return &amp;SyntaxError{Msg: fmt.Sprintf("unexpected '%s'", p.tok.text), Offset: p.tok.pos}</span>
+}
+</pre>
+		
+		<pre class="file" id="file14" style="display: none">package web
+
+import (
+        "bytes"
+        "crypto/sha256"
+        "embed"
+        "encoding/hex"
+        "fmt"
+        "io/fs"
+        "net/http"
+        "path"
+        "strings"
+        "time"
+)
+
+// The frontend build is copied into dist before the binary is built. all:
+// keeps files whose names start with _ (Vite can emit such chunks), and the
+// committed dist/.gitkeep keeps the package compiling without a build.
+//
+//go:embed all:dist
+var embedded embed.FS
+
+// Dist returns the frontend build embedded in the binary. Without a build it
+// holds only .gitkeep.
+func Dist() fs.FS {
+        <span class="cov8" title="1">build, err := fs.Sub(embedded, "dist")
+        if err != nil </span>{
+                <span class="cov0" title="0">panic(err)</span> // unreachable: "dist" is a valid path
+        }
+        <span class="cov8" title="1">return build</span>
+}
+
+// contentTypes maps the file extensions of the build to their Content-Type.
+// Go's own table has no font types and on Windows also reads the registry,
+// so the types are fixed here.
+var contentTypes = map[string]string{
+        ".html":  "text/html; charset=utf-8",
+        ".js":    "text/javascript; charset=utf-8",
+        ".css":   "text/css; charset=utf-8",
+        ".svg":   "image/svg+xml",
+        ".woff":  "font/woff",
+        ".woff2": "font/woff2",
+}
+
+// Cache-Control values. Vite puts the files whose names contain a content
+// hash under assets/, so they never change. Every other file, index.html
+// first of all, is revalidated with its ETag, so a new build shows up at once.
+const (
+        cacheImmutable  = "public, max-age=31536000, immutable"
+        cacheRevalidate = "no-cache"
+)
+
+// file is a file of the build, read into memory with its response headers.
+type file struct {
+        data         []byte
+        contentType  string
+        cacheControl string
+        etag         string
+}
+
+// NewHandler serves the files of the frontend build fsys with GET and HEAD.
+// "/" serves index.html, and every other path serves the file of that name.
+// Directories are not listed, files and directories whose names start with a
+// dot are not served, and other methods get 405.
+//
+// The files are read once, here. A file with an extension missing from
+// contentTypes is an error, so it fails at startup instead of being served
+// with a guessed type.
+func NewHandler(fsys fs.FS) (http.Handler, error) {
+        <span class="cov8" title="1">files := make(map[string]file)
+        err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error </span>{
+                <span class="cov8" title="1">if err != nil </span>{
+                        <span class="cov8" title="1">return err
+</span>                }
+                <span class="cov8" title="1">if name != "." &amp;&amp; strings.HasPrefix(d.Name(), ".") </span>{
+                        <span class="cov8" title="1">if d.IsDir() </span>{
+                                <span class="cov8" title="1">return fs.SkipDir
+</span>                        }
+                        <span class="cov8" title="1">return nil</span>
+                }
+                <span class="cov8" title="1">if d.IsDir() </span>{
+                        <span class="cov8" title="1">return nil
+</span>                }
+                <span class="cov8" title="1">f, err := readFile(fsys, name)
+                if err != nil </span>{
+                        <span class="cov8" title="1">return err
+</span>                }
+                <span class="cov8" title="1">files["/"+name] = f
+                return nil</span>
+        })
+        <span class="cov8" title="1">if err != nil </span>{
+                <span class="cov8" title="1">return nil, fmt.Errorf("web: %w", err)
+</span>        }
+        <span class="cov8" title="1">if index, ok := files["/index.html"]; ok </span>{
+                <span class="cov8" title="1">files["/"] = index
+</span>        }
+
+        <span class="cov8" title="1">mux := http.NewServeMux()
+        mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) </span>{
+                <span class="cov8" title="1">f, ok := files[r.URL.Path]
+                if !ok </span>{
+                        <span class="cov8" title="1">http.NotFound(w, r)
+                        return
+</span>                }
+                <span class="cov8" title="1">h := w.Header()
+                h.Set("Content-Type", f.contentType)
+                h.Set("Cache-Control", f.cacheControl)
+                h.Set("ETag", f.etag)
+</span>                // ServeContent answers If-None-Match with 304 and handles HEAD and
+                // Range requests. Embedded files have no modification time.
+                <span class="cov8" title="1">http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(f.data))</span>
+        })
+        <span class="cov8" title="1">return mux, nil</span>
+}
+
+func readFile(fsys fs.FS, name string) (file, error) {
+        <span class="cov8" title="1">contentType, ok := contentTypes[path.Ext(name)]
+        if !ok </span>{
+                <span class="cov8" title="1">return file{}, fmt.Errorf("%s: no content type for its extension", name)
+</span>        }
+        <span class="cov8" title="1">data, err := fs.ReadFile(fsys, name)
+        if err != nil </span>{
+                <span class="cov8" title="1">return file{}, err
+</span>        }
+        <span class="cov8" title="1">cacheControl := cacheRevalidate
+        if strings.HasPrefix(name, "assets/") </span>{
+                <span class="cov8" title="1">cacheControl = cacheImmutable
+</span>        }
+        <span class="cov8" title="1">sum := sha256.Sum256(data)
+        return file{
+                data:         data,
+                contentType:  contentType,
+                cacheControl: cacheControl,
+                etag:         `"` + hex.EncodeToString(sum[:16]) + `"`,
+        }, nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
